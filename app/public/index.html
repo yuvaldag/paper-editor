@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Paper Editor</title>
+  <link rel="stylesheet" href="vendor/katex/katex.min.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div id="app">
+  <aside id="sidebar">
+    <div class="brand">Paper Editor</div>
+    <div class="section-title">Projects <button id="newProject" class="icon" title="New project">+</button></div>
+    <ul id="projectList" class="nav"></ul>
+    <div class="section-title" id="filesTitle">Files <button id="newFile" class="icon" title="New file">+</button></div>
+    <ul id="fileList" class="nav"></ul>
+    <div class="section-title" id="gitTitle" hidden>Git <button id="gitSettingsBtn" class="icon" title="Git settings">⚙</button></div>
+    <div id="gitPanel"></div>
+    <div id="conn" class="conn"></div>
+  </aside>
+
+  <main id="main">
+    <header id="topbar">
+      <div id="crumb"></div>
+      <div id="watchBadge" class="badge off"></div>
+      <div class="spacer"></div>
+      <span id="saveState"></span>
+      <span id="texControls" hidden>
+        <span id="compileState"></span>
+        <button id="compileBtn" class="primary" title="Compile with LaTeX (⌘⇧B)">▶ Compile PDF</button>
+        <button id="pdfToggle" class="ghost" title="Show the compiled PDF next to the editor (recompiles as you edit)">PDF</button>
+      </span>
+      <button id="rawToggle" class="ghost" title="Show the raw source (no rendering)">Show source</button>
+    </header>
+
+    <div id="mergeBar" hidden></div>
+    <div id="reviewBar" hidden>
+      <span title="Accept or reject Claude's changes to continue editing">✎ <b id="changeCount">0</b> suggested change(s)</span>
+      <div class="spacer"></div>
+      <button id="prevChange" class="ghost" title="Previous change">↑</button>
+      <button id="nextChange" class="ghost" title="Next change">↓</button>
+      <button id="rejectAll" class="danger">Reject all</button>
+      <button id="acceptAll" class="primary">Accept all</button>
+    </div>
+
+    <div id="texErrors" hidden></div>
+    <div id="workspace"><div id="editorHost"></div><div id="pdfPane" hidden><iframe id="pdfFrame" title="Compiled PDF"></iframe><div id="pdfEmpty">Compile to see the PDF.</div></div></div>
+    <div id="empty" hidden>
+      <h2>No project selected</h2>
+      <p>Create a project with the <b>+</b> next to “Projects”, or ask a Claude chat in this folder to
+        <i>“create project &lt;name&gt;”</i>.</p>
+    </div>
+  </main>
+
+  <aside id="comments">
+    <div class="section-title">Comments &amp; requests
+      <label class="small"><input type="checkbox" id="showDone"> show done</label>
+    </div>
+    <div id="requestList"></div>
+    <div id="askBox">
+      <textarea id="askText" rows="3" placeholder="Ask Claude to edit this file… (⌘↵ to send)"></textarea>
+      <button id="askSend" class="primary">Send request</button>
+    </div>
+  </aside>
+</div>
+
+<div id="commentPop" hidden><button id="commentBtn">💬 Comment</button></div>
+<div id="commentForm" hidden>
+  <div class="cf-quote"></div>
+  <textarea rows="3" placeholder="What should Claude do here? (⌘↵ to send)"></textarea>
+  <div class="cf-actions">
+    <button class="ghost" data-act="cancel">Cancel</button>
+    <button class="primary" data-act="send">Send comment</button>
+  </div>
+</div>
+<div id="toast" hidden></div>
+
+<dialog id="projDlg">
+  <form method="dialog">
+    <h3>New project</h3>
+    <label class="field">Name<input name="name" required autocomplete="off"></label>
+    <label class="radio"><input type="radio" name="mode" value="empty" checked> Empty project</label>
+    <label class="radio"><input type="radio" name="mode" value="local"> Empty project with a local git repository</label>
+    <label class="radio"><input type="radio" name="mode" value="clone"> Clone an existing git repository</label>
+    <label class="field" data-show="clone">Repository URL<input name="url" placeholder="git@github.com:you/paper.git" autocomplete="off"></label>
+    <div class="dlg-actions"><button value="cancel" class="ghost" formnovalidate>Cancel</button><button value="ok" class="primary">Create</button></div>
+  </form>
+</dialog>
+
+<dialog id="gitDlg">
+  <form method="dialog">
+    <h3>Git — <span class="dlg-proj"></span></h3>
+    <div data-show="norepo">
+      <p class="hint">This project is not under version control yet.</p>
+      <button type="button" data-act="init">Create local repository</button>
+    </div>
+    <label class="field">Remote repository (origin)<input name="url" placeholder="git@github.com:you/paper.git or https://github.com/you/paper.git" autocomplete="off"></label>
+    <p class="hint">Uses your SSH keys or the macOS keychain. If the remote already has files they are merged with this project (conflicts go to Claude, and you approve the result).</p>
+    <button type="button" data-act="connect">Connect &amp; sync</button>
+    <hr>
+    <label class="field inline">Auto-sync every
+      <select name="interval"><option value="30">30 seconds</option><option value="60">1 minute</option><option value="120">2 minutes</option><option value="300">5 minutes</option><option value="900">15 minutes</option><option value="3600">1 hour</option></select>
+      (and ~20 s after you stop editing)</label>
+    <hr>
+    <label class="field">Commit author name<input name="authorName" autocomplete="off"></label>
+    <label class="field">Commit author email<input name="authorEmail" autocomplete="off"></label>
+    <button type="button" data-act="author">Save author</button>
+    <div class="dlg-actions"><button value="close" class="primary">Close</button></div>
+  </form>
+</dialog>
+
+<script src="vendor/editor.bundle.js"></script>
+<script src="diff.js"></script>
+<script src="app.js"></script>
+</body>
+</html>

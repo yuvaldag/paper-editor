@@ -1,0 +1,5 @@
+{
+  "permissions": {
+    "allow": ["Bash(node app/cli.js:*)", "Bash(node app/server.js:*)"]
+  }
+}

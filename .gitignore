@@ -1,0 +1,5 @@
+# Your documents (each project may be its own git repository)
+projects/
+
+node_modules/
+.DS_Store

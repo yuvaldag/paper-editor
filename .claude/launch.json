@@ -1,0 +1,6 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    { "name": "markdown-studio", "runtimeExecutable": "node", "runtimeArgs": ["app/server.js"], "port": 4477 }
+  ]
+}
