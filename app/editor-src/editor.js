@@ -170,7 +170,12 @@ function findMathMd(state) {
       const marks = n.node.getChildren('MathMark');
       const open = marks.length ? marks[0].to - marks[0].from : 1;
       const close = marks.length > 1 ? marks[marks.length - 1].to - marks[marks.length - 1].from : open;
-      out.push(mathInfo(state.doc, n.from, n.to, open, close, n.name === 'DisplayMath'));
+      const m = mathInfo(state.doc, n.from, n.to, open, close, n.name === 'DisplayMath');
+      if (/\n[ \t]*>/.test(m.inner)) {
+        m.inner = m.inner.replace(/(^|\n)[ \t]*>[ \t]?/g, '$1');
+        m.tex = numberMath(m, null).tex;
+      }
+      out.push(m);
       return false;
     },
   });
@@ -473,12 +478,19 @@ function buildMdPreview(state) {
       }
       if (name === 'Blockquote' || name === 'FencedCode' || name === 'CodeBlock') {
         const cls = name === 'Blockquote' ? 'cm-quote' : 'cm-codeblock';
-        for (let p = n.from; p <= n.to; ) {
-          const l = doc.lineAt(p);
-          decos.push(Decoration.line({ class: cls }).range(l.from));
-          p = l.to + 1;
+        const first = doc.lineAt(n.from).number, last = doc.lineAt(Math.max(n.from, n.to - (doc.sliceString(n.to - 1, n.to) === '\n' ? 1 : 0))).number;
+        for (let ln = first; ln <= last; ln++) {
+          let c = cls;
+          if (name === 'Blockquote') c += (ln === first ? ' cm-quote-first' : '') + (ln === last ? ' cm-quote-last' : '');
+          decos.push(Decoration.line({ class: c }).range(doc.line(ln).from));
         }
         return name === 'Blockquote' ? undefined : false;
+      }
+      if (name === 'QuoteMark') {
+        if (lineActive(n.from) || touchesChange(n.from, n.to) || mdMath.some((m) => n.from >= m.from && n.to <= m.to)) return;
+        const end = doc.sliceString(n.to, n.to + 1) === ' ' ? n.to + 1 : n.to;
+        decos.push(hide.range(n.from, end));
+        return;
       }
       if (name === 'EmphasisMark' || name === 'CodeMark' || name === 'StrikethroughMark') {
         const parent = n.node.parent;
@@ -1432,7 +1444,6 @@ const highlight = HighlightStyle.define([
   { tag: t.url, color: 'var(--muted)' },
   { tag: t.monospace, fontFamily: 'var(--mono)', fontSize: '0.88em' },
   { tag: t.processingInstruction, color: 'var(--muted)' },
-  { tag: t.quote, color: 'var(--muted)' },
   { tag: t.contentSeparator, color: 'var(--muted)' },
 ]);
 
