@@ -484,6 +484,24 @@ function buildMdPreview(state) {
         decos.push(hide.range(n.from, n.to));
         return;
       }
+      if (name === 'Image') {
+        if (selTouches(n.from, n.to) || touchesChange(n.from, n.to)) return false;
+        const node = n.node;
+        const urlN = node.getChild('URL');
+        if (!urlN) return false;
+        const src = doc.sliceString(urlN.from, urlN.to).trim().replace(/^<|>$/g, '');
+        const marks = node.getChildren('LinkMark');
+        const alt = marks.length >= 2 ? doc.sliceString(marks[0].to, marks[1].from).trim() : '';
+        // Optional size, pandoc style: ![caption](fig.png){width=60%}
+        let end = n.to, width = '';
+        const attr = /^\{[^}]*?width\s*=\s*([\d.]+(?:%|px))[^}]*\}/.exec(doc.sliceString(n.to, n.to + 80));
+        if (attr) { width = attr[1]; end = n.to + attr[0].length; }
+        const l = doc.lineAt(n.from);
+        const alone = doc.sliceString(l.from, n.from).trim() === '' && doc.sliceString(end, l.to).trim() === '';
+        if (alone) decos.push(Decoration.replace({ widget: new ImageWidget(src, width, alt, true), block: true }).range(l.from, l.to));
+        else decos.push(Decoration.replace({ widget: new ImageWidget(src, width, alt, false) }).range(n.from, end));
+        return false;
+      }
       if (name === 'Link') {
         if (selTouches(n.from, n.to) || touchesChange(n.from, n.to)) return false;
         const node = n.node;
@@ -786,24 +804,41 @@ const editTitle = (view, el) => {
 };
 
 let assetUrlFn = null;
+// A figure: images from the project folder (PDF figures are converted to PNG by the server) or from the web.
 class ImageWidget extends WidgetType {
-  constructor(file, width) { super(); this.file = file; this.width = width; }
-  eq(o) { return o.file === this.file && o.width === this.width; }
-  toDOM() {
-    const wrap = document.createElement('span');
-    wrap.className = 'cm-tex-figure';
-    const url = assetUrlFn ? assetUrlFn(this.file) : null;
-    if (!url || /\.(pdf|eps|ps)$/i.test(this.file)) {
-      wrap.innerHTML = `<span class="cm-tex-imgph">🖼 ${escHtml(this.file)}</span>`;
-      return wrap;
+  constructor(file, width, caption = '', block = false) { super(); this.file = file; this.width = width; this.caption = caption; this.block = block; }
+  eq(o) { return o.file === this.file && o.width === this.width && o.caption === this.caption && o.block === this.block; }
+  toDOM(view) {
+    const wrap = document.createElement(this.block ? 'div' : 'span');
+    wrap.className = 'cm-figure' + (this.block ? ' cm-figure-block' : '');
+    wrap.title = `${this.file} — click to edit`;
+    const web = /^(https?:|data:)/i.test(this.file);
+    const url = web ? this.file : assetUrlFn ? `${assetUrlFn(this.file)}?as=img` : null;
+    const fail = () => { wrap.innerHTML = `<span class="cm-tex-imgph">🖼 ${escHtml(this.file)}<br><small>image not found</small></span>`; };
+    if (!url) fail();
+    else {
+      const img = document.createElement('img');
+      img.src = url;
+      img.alt = this.caption;
+      if (this.width && this.width !== 'auto') img.style.width = this.width;
+      img.onerror = fail;
+      wrap.appendChild(img);
+      if (this.caption && this.block) {
+        const c = document.createElement('div');
+        c.className = 'cm-figure-caption';
+        c.textContent = this.caption;
+        wrap.appendChild(c);
+      }
     }
-    const img = document.createElement('img');
-    img.src = url;
-    img.style.width = this.width;
-    img.onerror = () => { wrap.innerHTML = `<span class="cm-tex-imgph">🖼 ${escHtml(this.file)}</span>`; };
-    wrap.appendChild(img);
+    wrap.addEventListener('mousedown', (e) => {
+      if (view.state.readOnly) return;
+      e.preventDefault();
+      editHere(view, wrap);
+      view.focus();
+    });
     return wrap;
   }
+  ignoreEvent() { return true; }
 }
 
 const HIDE_CMDS = new Set([

@@ -715,6 +715,54 @@ function notifyMessages() {
   document.title = unread.length ? `(${unread.length}) Paper Editor` : 'Paper Editor';
 }
 
+// ---------------- figures: paste or drop images / PDFs into the editor ----------------
+const FIG_TYPE = /^image\/(png|jpe?g|gif|webp|svg\+xml)$|^application\/pdf$/;
+const figFiles = (list) => [...(list || [])].filter((f) => FIG_TYPE.test(f.type));
+async function addFigures(files, pos) {
+  if (!S.doc) return;
+  if (S.reviewing) return toast('Review Claude\'s suggested changes before adding figures.');
+  if (S.editMode === 'instruct') return toast('Switch to Edit or Suggest to add figures.');
+  const snippets = [];
+  for (const f of files) {
+    const ext = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/gif': 'gif', 'image/webp': 'webp', 'image/svg+xml': 'svg', 'application/pdf': 'pdf' }[f.type];
+    const stamp = new Date().toISOString().slice(0, 19).replace(/[-:]/g, '').replace('T', '-');
+    const name = f.name && !/^image\.\w+$/.test(f.name) ? f.name : `figure-${stamp}.${ext}`;
+    try {
+      const r = await fetch(`${P()}/upload?name=${enc(name)}`, { method: 'POST', body: f });
+      const j = await r.json();
+      if (!r.ok) throw new Error(j.error || 'Upload failed');
+      snippets.push(isTex()
+        ? `\\begin{figure}[ht]\n  \\centering\n  \\includegraphics[width=0.8\\textwidth]{${j.path}}\n  \\caption{}\n\\end{figure}`
+        : `![](${j.path})`);
+    } catch (e) { toast(e.message, 6000); }
+  }
+  if (!snippets.length) return;
+  const v = ed.view;
+  const at = pos != null ? pos : v.state.selection.main.head;
+  const line = v.state.doc.lineAt(at);
+  const insert = (at === line.from ? '' : '\n\n') + snippets.join('\n\n') + (at === line.to ? '\n' : '\n\n');
+  v.dispatch({ changes: { from: at, insert }, selection: { anchor: at + insert.length }, userEvent: 'input.paste', scrollIntoView: true });
+  v.focus();
+  toast(`Added ${snippets.length} figure${snippets.length > 1 ? 's' : ''} to figures/.`);
+}
+$('#editorHost').addEventListener('paste', (e) => {
+  const files = figFiles(e.clipboardData && e.clipboardData.files);
+  if (!files.length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  addFigures(files);
+}, true);
+$('#editorHost').addEventListener('dragover', (e) => {
+  if (e.dataTransfer && [...e.dataTransfer.types].includes('Files')) e.preventDefault();
+}, true);
+$('#editorHost').addEventListener('drop', (e) => {
+  const files = figFiles(e.dataTransfer && e.dataTransfer.files);
+  if (!files.length) return;
+  e.preventDefault();
+  e.stopPropagation();
+  addFigures(files, ed.view.posAtCoords({ x: e.clientX, y: e.clientY }));
+}, true);
+
 // ---------------- sidebar ----------------
 $('#projectList').onclick = (e) => {
   const li = e.target.closest('li');

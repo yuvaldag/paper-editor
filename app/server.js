@@ -4,6 +4,7 @@ const http = require('http');
 const fs = require('fs');
 const path = require('path');
 const L = require('./lib');
+const { execFile } = require('child_process');
 const Git = require('./git');
 
 const PUBLIC = path.join(__dirname, 'public');
@@ -71,7 +72,34 @@ const TEX_TEMPLATE = `\\documentclass{article}
 const str = (v, max = 100000) => (typeof v === 'string' ? v.slice(0, max) : '');
 const num = (v) => (Number.isFinite(v) ? v : null);
 
-async function handleApi(req, res, parts) {
+function readRaw(req, limit = 30e6) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > limit) { reject(L.httpErr(413, 'File too large (max 30 MB)')); req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => resolve(Buffer.concat(chunks)));
+    req.on('error', reject);
+  });
+}
+// PDF figures can't be shown by <img>: convert the first page to PNG with macOS `sips` (cached).
+function figureAsImage(p, fp) {
+  return new Promise((resolve) => {
+    const st = fs.statSync(fp);
+    const cache = path.join(L.projDir(p), 'build', '.figcache', `${L.hash(fp + st.mtimeMs)}.png`);
+    if (fs.existsSync(cache)) return resolve(cache);
+    fs.mkdirSync(path.dirname(cache), { recursive: true });
+    execFile('sips', ['-s', 'format', 'png', '-Z', '1800', fp, '--out', cache], { timeout: 30000 }, (err) =>
+      resolve(!err && fs.existsSync(cache) ? cache : null)
+    );
+  });
+}
+const FIG_EXT = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf'];
+
+async function handleApi(req, res, parts, url) {
   const m = req.method;
 
   if (parts[1] === 'ping') return send(res, 200, { ok: true, app: 'paper-editor' });
@@ -143,12 +171,32 @@ async function handleApi(req, res, parts) {
       const root = rest[0] === 'pdf' ? path.join(L.projDir(p), 'build') : L.projDir(p);
       let fp = path.normalize(path.join(root, ...rest.slice(1)));
       if (!fp.startsWith(root + path.sep) || fp.includes(`${path.sep}.collab`)) throw L.httpErr(403, 'forbidden');
-      if (rest[0] === 'asset' && !path.extname(fp))
-        fp = ['.png', '.jpg', '.jpeg', '.gif', '.webp', '.svg', '.pdf'].map((e) => fp + e).find((x) => fs.existsSync(x)) || fp;
+      if (rest[0] === 'asset' && !FIG_EXT.includes(path.extname(fp).toLowerCase()))
+        fp = FIG_EXT.map((e) => fp + e).find((x) => fs.existsSync(x)) || fp;
+      if (rest[0] === 'asset' && url.searchParams.get('as') === 'img' && /\.(pdf|eps|ps)$/i.test(fp) && fs.existsSync(fp)) {
+        const png = await figureAsImage(p, fp);
+        if (!png) throw L.httpErr(415, 'Could not convert this figure to an image');
+        fp = png;
+      }
       const type = MIME[path.extname(fp).toLowerCase()];
       if (!type || !fs.existsSync(fp)) throw L.httpErr(404, 'not found');
       res.writeHead(200, { 'Content-Type': type, 'Cache-Control': 'no-store' });
       return fs.createReadStream(fp).pipe(res);
+    }
+
+    // Upload a figure (pasted or dropped into the editor) into <project>/figures/.
+    if (rest[0] === 'upload' && m === 'POST') {
+      let name = String(url.searchParams.get('name') || 'figure.png').split(/[\\/]/).pop().replace(/[^\p{L}\p{N}._-]+/gu, '-').replace(/^[-.]+/, '') || 'figure.png';
+      const ext = path.extname(name).toLowerCase();
+      if (!FIG_EXT.includes(ext)) throw L.httpErr(400, 'Only images (png, jpg, gif, webp, svg) and PDF figures can be added');
+      const data = await readRaw(req);
+      if (!data.length) throw L.httpErr(400, 'Empty file');
+      const dir = path.join(L.projDir(p), 'figures');
+      fs.mkdirSync(dir, { recursive: true });
+      const stem = name.slice(0, -ext.length);
+      for (let k = 2; fs.existsSync(path.join(dir, name)); k++) name = `${stem}-${k}${ext}`;
+      fs.writeFileSync(path.join(dir, name), data);
+      return send(res, 200, { path: `figures/${name}` });
     }
 
     if (rest[0] === 'files' && rest.length === 1 && m === 'POST') {
@@ -264,7 +312,7 @@ const server = http.createServer(async (req, res) => {
   try {
     const url = new URL(req.url, 'http://localhost');
     const parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
-    if (parts[0] === 'api') await handleApi(req, res, parts);
+    if (parts[0] === 'api') await handleApi(req, res, parts, url);
     else serveStatic(url.pathname, res);
   } catch (e) {
     if (!e.status) console.error(e);

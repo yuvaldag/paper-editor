@@ -14,6 +14,9 @@ folder, so no server or account is involved apart from git remotes you choose to
   and equations are rendered. Click an equation to edit its source with a live preview, then press Enter.
 - **LaTeX documents look like the paper**: title block, numbered sections, theorem/proof environments,
   lists, equations numbered across the document, working `\ref` / `\eqref` / `\cite`, footnotes and images.
+- **Figures shown inline**: markdown `![caption](fig.png){width=60%}` and LaTeX `\includegraphics` render
+  in the editor, including PDF figures (converted with macOS `sips`). Paste or drag an image/PDF into the
+  editor to save it in `figures/` and insert the right markdown or `figure` environment.
 - **Compile to PDF** with a real LaTeX compiler (Tectonic, latexmk or pdflatex). The PDF can be shown beside
   the editor and recompiles as you type. Errors are listed with clickable line numbers.
 - **Comments for Claude**: select text and click *Comment*, or send a general request. A chat that
