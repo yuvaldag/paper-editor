@@ -27,7 +27,7 @@ folder, so no server or account is involved apart from git remotes you choose to
   with accept/reject) and *Instruct* (purple notes in the text that you send to Claude, all at once or one at a time from the note's hover bar). Select text, or
   click inside a note or suggestion, to change it into plain text, a suggestion or an instruction.
 - **Tracked changes**: Claude's insertions and deletions are shown inline; hover one to accept or reject
-  it, or step through them one by one with ✓ Accept / ✕ Reject in the review bar. Your own typing is saved directly.
+  it, or step through them one by one with ✓ Accept / ✕ Reject in the review bar. Your own typing is saved directly, and Claude's edits arriving while you type never move your cursor (a notice offers to jump to the first change).
 - **Outline**: sections and subsections (markdown and LaTeX) at the bottom of the sidebar; click to jump.
 - **Messages from Claude**: a chat can ask you something or flag an issue, optionally pinned to a passage.
 - **Git sync** per project: create a local repo, connect a remote or clone one. Sync on click or

@@ -1705,7 +1705,20 @@ function create(parent, { onChange, onSelection, onResolve, onSendNote, assetUrl
       while (a < cur.length && a < text.length && cur[a] === text[a]) a++;
       let b = 0;
       while (b < cur.length - a && b < text.length - a && cur[cur.length - 1 - b] === text[text.length - 1 - b]) b++;
-      view.dispatch({ changes: { from: a, to: cur.length - b, insert: text.slice(a, text.length - b) }, annotations: remote.of(true) });
+      // Apply the difference as small separate changes, so the cursor (and scroll position) of someone typing
+      // stays where it is even when the new text differs both before and after it.
+      let changes = { from: a, to: cur.length - b, insert: text.slice(a, text.length - b) };
+      const D = globalThis.MDDiff;
+      if (D) {
+        changes = [];
+        let pos = a;
+        for (const s of D.buildSegments(cur.slice(a, cur.length - b), text.slice(a, text.length - b))) {
+          if (s.eq != null) { pos += s.eq.length; continue; }
+          changes.push({ from: pos, to: pos + s.del.length, insert: s.ins });
+          pos += s.del.length;
+        }
+      }
+      view.dispatch({ changes, annotations: remote.of(true) });
     },
     // Put the cursor at the start of the body (after \begin{document} in LaTeX files).
     resetCursor() {

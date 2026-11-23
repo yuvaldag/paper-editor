@@ -66,9 +66,17 @@ function checkVersion(v) {
 const F = () => `${P()}/file/${enc(S.file)}`;
 
 let toastT;
-function toast(msg, ms = 3500) {
+// `action`: optional { label, fn } shown as a button in the toast.
+function toast(msg, ms = 3500, action) {
   const t = $('#toast');
   t.textContent = msg;
+  if (action) {
+    const b = document.createElement('button');
+    b.textContent = action.label;
+    b.onmousedown = (e) => e.preventDefault(); // keep the cursor where it is
+    b.onclick = () => { t.hidden = true; action.fn(); };
+    t.append(' ', b);
+  }
   t.hidden = false;
   clearTimeout(toastT);
   toastT = setTimeout(() => (t.hidden = true), ms);
@@ -154,6 +162,8 @@ async function loadFile() {
   if (!S.file) return;
   const d = await api('GET', F());
   const fresh = !S.doc;
+  const hadChanges = !fresh && S.reviewing ? S.hunks.length : 0;
+  const prevHash = S.doc && S.doc.hash;
   S.doc = d;
   S.server = { base: d.base, current: d.current }; // last version known to be on disk (merge ancestor)
   const pending = d.current !== d.base;
@@ -177,7 +187,12 @@ async function loadFile() {
   renderHighlights();
   renderMarks();
   renderOutline();
-  if (pending && !S.autoNoteFix) autoAcceptNoteRemovals();
+  if (pending && !S.autoNoteFix) await autoAcceptNoteRemovals();
+  // New changes from Claude: never move the user's cursor; offer to jump there instead.
+  if (pending && !fresh && !S.autoNoteFix && d.hash !== prevHash && S.reviewing && S.hunks.length > hadChanges) {
+    const n = S.hunks.length;
+    toast(`Claude made ${n} change${n > 1 ? 's' : ''}.`, 10000, { label: 'Go to first change', fn: () => S.hunks.length && focusChange(S.hunks[0]) });
+  }
 }
 
 // When Claude carries out an instruction it deletes the {>>…<<} note; that deletion needs no review.
@@ -575,7 +590,8 @@ async function save() {
 // Claude (or git) changed the file while the user had unsaved typing: merge instead of throwing the typing away.
 // Ancestor = last version known on disk; mine = the editor; theirs = the file now.
 async function mergeAfterConflict(backupFile) {
-  ed.setReadOnly(true); // a few ms: keep keystrokes from landing between the read and the write
+  // The editor stays editable (making it read-only would take the cursor away from the user);
+  // anything typed while merging is merged in afterwards.
   try {
     for (let attempt = 0; attempt < 4; attempt++) {
       const fresh = await api('GET', F());
@@ -596,14 +612,23 @@ async function mergeAfterConflict(backupFile) {
         ? `Claude edited the same words you were changing; ${lost} of your edits kept Claude's version.${backupFile ? ` Your full version is saved in ${backupFile}.` : ''}`
         : 'Claude changed this file while you were typing — your text was kept and merged.', 7000);
       $('#saveState').textContent = 'Saved';
+      const typed = ed.getDoc(); // includes keystrokes made during the merge
       await loadFile();
+      if (typed !== mineC) {
+        const m = MDDiff.merge3(mineC, typed, c.text);
+        if (m.text !== ed.getDoc()) {
+          ed.setDoc(m.text);
+          S.dirty = true;
+          if (S.reviewing) S.reviewDirty = true;
+          clearTimeout(S.saveT);
+          S.saveT = setTimeout(save, 300);
+        }
+      }
       return;
     }
     throw new Error('The file keeps changing; please try again.');
   } catch (x) {
     toast(x.message, 7000);
-  } finally {
-    ed.setReadOnly(false);
   }
 }
 async function flushSave() {
