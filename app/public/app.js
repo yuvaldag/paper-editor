@@ -315,6 +315,17 @@ function setRaw(raw) {
 }
 $('#rawToggle').onclick = () => setRaw(!S.raw);
 $('#searchBtn').onclick = () => ed.toggleSearch();
+// ▢ Box: wrap the selected lines in a colored box (::: color … :::), or start an empty one at the cursor.
+$('#boxBtn').onclick = () => { $('#boxPalette').hidden = !$('#boxPalette').hidden; };
+$('#boxPalette').addEventListener('mousedown', (e) => e.preventDefault());
+$('#boxPalette').addEventListener('click', (e) => {
+  const b = e.target.closest('[data-box]');
+  if (!b) return;
+  $('#boxPalette').hidden = true;
+  if (S.editMode === 'instruct') return toast('Switch to Edit or Suggest to add a box.');
+  ed.insertBox(b.dataset.box);
+});
+document.addEventListener('mousedown', (e) => { if (!e.target.closest('#boxWrap')) $('#boxPalette').hidden = true; });
 // ⌘F / Ctrl+F anywhere in the app searches the document (the browser's own find can't see off-screen text).
 document.addEventListener('keydown', (e) => {
   if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'f' || !S.doc) return;
@@ -673,6 +684,7 @@ document.addEventListener('keydown', (e) => {
 // ---------------- LaTeX: compile to PDF ----------------
 function renderTexControls() {
   const tex = isTex();
+  $('#boxWrap').hidden = tex;
   $('#texControls').hidden = !tex;
   $('#pdfToggle').classList.toggle('on', S.pdfOpen);
   $('#pdfPane').hidden = !(tex && S.pdfOpen);

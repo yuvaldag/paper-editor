@@ -34,6 +34,19 @@ text with context, comment) and the steps:
 
 If the watcher prints that another watcher took over, stop — another chat is watching.
 
+## Boxes in markdown
+To put content in a colored box (definitions, algorithms, theorems, remarks), use a fenced block —
+never `>` blockquotes:
+
+```
+::: green Algorithm: Gradient Descent
+Starting from $x_1$ … (any markdown: math, lists, figures)
+:::
+```
+
+The first word is the color (blue, green, yellow, orange, red, purple, gray); the rest of the line is an
+optional title. Close with a line containing only `:::`. Leave a blank line before and after the box.
+
 ## Suggestions and instructions inside files
 The user can type in three modes. Their *suggestions* are stored in the file as CriticMarkup:
 `{++added text++}` and `{--removed text--}`. Leave these marks exactly as they are unless the user

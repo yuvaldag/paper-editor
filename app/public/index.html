@@ -37,6 +37,10 @@
         <button id="compileBtn" class="primary" title="Compile with LaTeX (⌘⇧B)">▶ Compile PDF</button>
         <button id="pdfToggle" class="ghost" title="Show the compiled PDF next to the editor (recompiles as you edit)">PDF</button>
       </span>
+      <span id="boxWrap">
+        <button id="boxBtn" class="ghost" title="Put the selected lines in a colored box, or start a new box">▢ Box</button>
+        <div id="boxPalette" hidden><button data-box="blue" title="Blue box"><span class="sw sw-blue"></span>Blue</button><button data-box="green" title="Green box"><span class="sw sw-green"></span>Green</button><button data-box="yellow" title="Yellow box"><span class="sw sw-yellow"></span>Yellow</button><button data-box="orange" title="Orange box"><span class="sw sw-orange"></span>Orange</button><button data-box="red" title="Red box"><span class="sw sw-red"></span>Red</button><button data-box="purple" title="Purple box"><span class="sw sw-purple"></span>Purple</button><button data-box="gray" title="Gray box"><span class="sw sw-gray"></span>Gray</button></div>
+      </span>
       <button id="searchBtn" class="ghost" title="Search in this document (⌘F)">🔍</button>
       <button id="rawToggle" class="ghost" title="Show the raw source (no rendering)">Show source</button>
     </header>

@@ -465,12 +465,70 @@ function mathDecos(math, ctx, decos) {
   }
 }
 
+// ---------- colored boxes:  ::: green Optional title  …  ::: ----------
+const BOX_COLORS = ['blue', 'green', 'yellow', 'orange', 'red', 'purple', 'gray'];
+const BOX_OPEN = /^\s*:::+\s*(.*?)\s*$/;
+function findBoxes(doc) {
+  const boxes = [], stack = [];
+  let fence = null;
+  for (let ln = 1; ln <= doc.lines; ln++) {
+    const line = doc.line(ln), t = line.text;
+    const f = /^\s*(```+|~~~+)/.exec(t);
+    if (f) { if (!fence) fence = f[1][0]; else if (f[1][0] === fence) fence = null; continue; }
+    if (fence) continue;
+    const m = BOX_OPEN.exec(t);
+    if (!m) continue;
+    if (!m[1]) {
+      // a bare ::: closes the innermost open box
+      const b = stack.pop();
+      if (b) { b.close = line; boxes.push(b); }
+      continue;
+    }
+    const words = m[1].split(/\s+/);
+    let color = words[0].toLowerCase().replace(/^\{?\.?/, '').replace(/\}$/, '');
+    if (color === 'grey') color = 'gray';
+    const known = BOX_COLORS.includes(color);
+    stack.push({ open: line, close: null, color: known ? color : 'blue', title: known ? words.slice(1).join(' ') : m[1], depth: stack.length });
+  }
+  for (const b of stack) boxes.push(b); // unclosed boxes run to the end of the document
+  return boxes;
+}
+function boxDecos(state, ctx, decos) {
+  const { doc, lineActive, touchesChange } = ctx;
+  const boxes = findBoxes(doc);
+  if (!boxes.length) return;
+  // innermost box decides a line's color
+  const lineBox = new Map();
+  for (const b of boxes.sort((x, y) => x.depth - y.depth)) {
+    const last = b.close ? b.close.number : doc.lines;
+    for (let ln = b.open.number; ln <= last; ln++) lineBox.set(ln, b);
+  }
+  for (const [ln, b] of lineBox) {
+    const first = ln === b.open.number, last = b.close ? ln === b.close.number : ln === doc.lines;
+    decos.push(Decoration.line({ class: `cm-box cm-box-${b.color}${first ? ' cm-box-first' : ''}${last ? ' cm-box-last' : ''}${((first && !b.title) || (b.close && ln === b.close.number)) && !lineActive(doc.line(ln).from) ? ' cm-box-fence' : ''}` }).range(doc.line(ln).from));
+  }
+  for (const b of boxes) {
+    for (const [line, isOpen] of [[b.open, true], [b.close, false]]) {
+      if (!line || line.to === line.from || lineActive(line.from) || touchesChange(line.from, line.to)) continue;
+      const html = isOpen && b.title ? texInline(b.title) : '';
+      decos.push(Decoration.replace({ widget: new HtmlWidget(html, isOpen ? 'cm-box-title' : 'cm-box-end') }).range(line.from, line.to));
+    }
+  }
+}
+
 function buildMdPreview(state) {
   const decos = [];
   const ctx = previewContext(state);
   const { doc, touchesChange, selTouches, lineActive } = ctx;
   const mdMath = findMathMd(state);
+  // Display math inside a box stays part of the box's lines (a block widget would break the box apart).
+  const inBox = new Set();
+  for (const b of findBoxes(doc)) for (let ln = b.open.number; ln <= (b.close ? b.close.number : doc.lines); ln++) inBox.add(ln);
+  if (inBox.size)
+    for (const m of mdMath)
+      if (m.block && inBox.has(doc.lineAt(m.from).number)) { m.block = false; m.bfrom = m.from; m.bto = m.to; }
   mathDecos(mdMath, ctx, decos);
+  boxDecos(state, ctx, decos);
   markupDecos(state, ctx, decos, mdMath, (a, b, spec) => { if (b > a) decos.push(Decoration.replace(spec).range(a, b)); return true; });
   getTree(state).iterate({
     enter(n) {
@@ -1580,6 +1638,28 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       if (out === text.slice(F, T)) return false;
       view.dispatch({ changes: { from: F, to: T, insert: out }, selection: { anchor: F + out.length }, annotations: direct.of(true), scrollIntoView: true });
       return true;
+    },
+    insertBox(color) {
+      const st = view.state, doc = st.doc, r = st.selection.main;
+      const l1 = doc.lineAt(r.from), l2 = doc.lineAt(r.to);
+      const blank = (n) => n < 1 || n > doc.lines || doc.line(n).text.trim() === '';
+      if (r.empty) {
+        const here = l1.text.trim() === '';
+        const at = here ? l1.from : l1.to;
+        const pre = here ? (blank(l1.number - 1) ? '' : '\n') : '\n\n';
+        const ins = `${pre}::: ${color}\n\n:::` + (here && !blank(l1.number + 1) ? '\n' : '');
+        const cursor = at + pre.length + `::: ${color}\n`.length;
+        view.dispatch({ changes: { from: at, to: here ? l1.to : at, insert: ins }, selection: { anchor: cursor }, annotations: direct.of(true), scrollIntoView: true });
+      } else {
+        const open = (blank(l1.number - 1) ? '' : '\n') + `::: ${color}\n`;
+        const close = '\n:::' + (blank(l2.number + 1) ? '' : '\n');
+        view.dispatch({
+          changes: [{ from: l1.from, insert: open }, { from: l2.to, insert: close }],
+          selection: { anchor: l1.from + open.length - 1 }, // end of the "::: color" line: type a title
+          annotations: direct.of(true), scrollIntoView: true,
+        });
+      }
+      view.focus();
     },
     // Prefix every unsent instruction with "(sent) " (stored in the file, hidden in the editor).
     markNotesSent() {

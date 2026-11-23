@@ -24,8 +24,8 @@ const MIME = {
 // Version of the web app = latest change time of its files. Used to cache-bust script URLs and to tell
 // open pages that a newer version is available.
 let versionCache = { at: 0, v: '' };
-function appVersion() {
-  if (Date.now() - versionCache.at < 2000) return versionCache.v;
+function appVersion(fresh = false) {
+  if (!fresh && Date.now() - versionCache.at < 2000) return versionCache.v;
   let latest = 0;
   const walk = (dir) => {
     for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
@@ -74,7 +74,7 @@ function serveStatic(pathname, res) {
     const cache = rel.includes('/fonts/') ? 'public, max-age=604800' : 'no-store, must-revalidate';
     if (rel === 'index.html') {
       // Stamp every script / stylesheet URL with the app version so a reload can never use stale copies.
-      const v = appVersion();
+      const v = appVersion(true);
       data = Buffer.from(
         data.toString('utf8')
           .replace(/(src|href)="((?:vendor\/)?[\w./-]+\.(?:js|css))"/g, `$1="$2?v=${v}"`)
