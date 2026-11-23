@@ -315,6 +315,7 @@ function renderEmpty() {
     $('#watchBadge').hidden = true;
     $('#fileList').innerHTML = '';
     $('#reviewBar').hidden = true;
+    $('#outlineBox').hidden = true;
   }
 }
 
