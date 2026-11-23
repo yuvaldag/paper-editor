@@ -108,6 +108,19 @@ function createFile(p, f, content = '') {
   atomicWrite(fp, content);
   atomicWrite(basePath(p, f), content);
 }
+// Rename a document together with its accepted-text copy and the comments that point at it.
+function renameFile(p, from, to) {
+  checkFile(from);
+  checkFile(to);
+  if (from === to) return;
+  const src = filePath(p, from), dst = filePath(p, to);
+  if (!fs.existsSync(src)) throw httpErr(404, `No file "${from}"`);
+  if (fs.existsSync(dst) && from.toLowerCase() !== to.toLowerCase()) throw httpErr(409, `A file named "${to}" already exists`);
+  fs.renameSync(src, dst);
+  const b = basePath(p, from);
+  if (fs.existsSync(b)) fs.renameSync(b, basePath(p, to));
+  for (const r of listRequests(p)) if (r.file === from) { r.file = to; saveRequest(p, r); }
+}
 function readDoc(p, f) {
   const current = readText(filePath(p, f));
   if (current == null) throw httpErr(404, `No file "${f}"`);
@@ -253,7 +266,7 @@ module.exports = {
   ROOT, PROJECTS, PORT, HEARTBEAT_MS, STALE_MS,
   httpErr, checkName, checkFile, projDir, collabDir, watcherFile, exists, requireProject,
   atomicWrite, readText, readJSON, hash, newId,
-  listProjects, listFiles, createProject, createFile, readDoc, writeDoc, saveConflict,
+  listProjects, listFiles, createProject, createFile, renameFile, readDoc, writeDoc, saveConflict,
   listRequests, getRequest, saveRequest, deleteRequest,
   pidAlive, watchStatus,
 };

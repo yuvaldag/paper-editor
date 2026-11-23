@@ -310,3 +310,6 @@ dialog .radio { display: flex; gap: 8px; align-items: center; margin: 6px 0; }
 dialog .hint { font-size: 12px; color: var(--muted); margin: 4px 0 8px; }
 dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .dlg-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 16px; }
+
+#fileList input.rename { width: 100%; font: inherit; font-size: 13px; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--text); outline: none; }
+#fileList li { user-select: none; }

@@ -180,6 +180,15 @@ async function handleApi(req, res, parts) {
         return send(res, 200, { hash: L.hash(content) });
       }
       if (rest[2] === 'compile' && m === 'POST') return send(res, 200, await L.compileTex(p, f));
+      if (rest[2] === 'rename' && m === 'POST') {
+        const b = await readBody(req);
+        let name = str(b.name).trim();
+        if (!/\.(md|tex)$/i.test(name)) name += f.endsWith('.tex') ? '.tex' : '.md';
+        name = name.replace(/\.(md|tex)$/i, (x) => x.toLowerCase());
+        L.renameFile(p, f, L.checkFile(name));
+        Git.noteEdit(p);
+        return send(res, 200, { name });
+      }
       // Accept / reject Claude's tracked changes.
       if (rest[2] === 'resolve' && m === 'POST') {
         const b = await readBody(req);

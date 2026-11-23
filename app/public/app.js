@@ -174,9 +174,10 @@ function renderProjects() {
     .join('');
 }
 function renderFiles() {
+  if (S.renaming) return;
   $('#fileList').innerHTML = S.files
     .map(
-      (f) => `<li data-f="${esc(f.name)}" class="${f.name === S.file ? 'active' : ''}">${f.name.endsWith('.tex') ? '<span class="ftype">TeX</span>' : '📄'} ${esc(f.name)}${
+      (f) => `<li data-f="${esc(f.name)}" class="${f.name === S.file ? 'active' : ''}" title="Double-click to rename">${f.name.endsWith('.tex') ? '<span class="ftype">TeX</span>' : '📄'} ${esc(f.name)}${
         f.pending ? '<span class="pend" title="Has suggested changes to review">● changes</span>' : ''
       }</li>`
     )
@@ -626,8 +627,46 @@ $('#projectList').onclick = (e) => {
 };
 $('#fileList').onclick = (e) => {
   const li = e.target.closest('li');
-  if (li && li.dataset.f !== S.file) openFile(li.dataset.f);
+  if (li && !S.renaming && li.dataset.f !== S.file) openFile(li.dataset.f);
 };
+// Double-click a file to rename it in place (Enter saves, Esc cancels).
+$('#fileList').addEventListener('dblclick', (e) => {
+  const li = e.target.closest('li');
+  if (!li || S.renaming) return;
+  const old = li.dataset.f;
+  S.renaming = old;
+  li.innerHTML = `<input class="rename" spellcheck="false" value="${esc(old)}">`;
+  const input = li.querySelector('input');
+  input.focus();
+  input.setSelectionRange(0, old.replace(/\.(md|tex)$/, '').length);
+  let finished = false;
+  const finish = async (save) => {
+    if (finished) return;
+    finished = true;
+    const name = input.value.trim();
+    if (save && name && name !== old) {
+      try {
+        if (old === S.file) await flushSave();
+        const r = await api('POST', `${P()}/file/${enc(old)}/rename`, { name });
+        if (old === S.file) { S.file = r.name; setHash(); }
+        toast(`Renamed to ${r.name}`);
+      } catch (x) {
+        toast(x.message, 6000);
+      }
+    }
+    S.renaming = null;
+    S.lastReqJSON = '';
+    await refreshState();
+    renderFiles();
+    renderWatch();
+  };
+  input.addEventListener('keydown', (ev) => {
+    if (ev.key === 'Enter') { ev.preventDefault(); finish(true); }
+    if (ev.key === 'Escape') { ev.preventDefault(); finish(false); }
+  });
+  input.addEventListener('blur', () => finish(true));
+  input.addEventListener('click', (ev) => ev.stopPropagation());
+});
 // ---------------- new project dialog ----------------
 const projDlg = $('#projDlg');
 const showRows = (dlg, key, on) => dlg.querySelectorAll(`[data-show="${key}"]`).forEach((x) => (x.hidden = !on));
