@@ -20,6 +20,15 @@ const ed = MDEditor.create($('#editorHost'), {
   onChange: onUserEdit,
   onResolve: (idx, accept) => resolveHunk(idx, accept),
   assetUrl: (f) => (S.project ? `${P()}/asset/${f.split('/').map(enc).join('/')}` : null),
+  onBlocked: (why) => {
+    const b = $('#modeBanner');
+    b.classList.remove('flash');
+    void b.offsetWidth;
+    b.classList.add('flash');
+    toast(why === 'instruct'
+      ? 'Instruct mode only adds notes for Claude — switch to Edit to change or delete your text.'
+      : 'That change would cut through a suggestion — accept or reject it first, or switch to Edit.', 5000);
+  },
 });
 
 // ---------------- api ----------------
@@ -173,7 +182,16 @@ function setEditMode(mode) {
   ed.setEditMode(mode);
   document.querySelectorAll('#editMode button').forEach((b) => b.classList.toggle('on', b.dataset.em === mode));
   $('#editMode').dataset.mode = mode;
+  const banner = $('#modeBanner');
+  banner.hidden = mode === 'edit';
+  banner.dataset.mode = mode;
+  banner.querySelector('span').innerHTML = mode === 'suggest'
+    ? '<b>Suggest mode</b> — what you add or delete is kept as a suggestion (blue / orange) to accept or reject later.'
+    : mode === 'instruct'
+      ? '<b>Instruct mode</b> — what you type becomes a note for Claude; your text itself is not changed.'
+      : '';
 }
+$('#modeBanner').addEventListener('click', (e) => { if (e.target.dataset.em) { setEditMode('edit'); ed.focus(); } });
 $('#editMode').addEventListener('click', (e) => {
   const m = e.target.dataset.em;
   if (!m) return;

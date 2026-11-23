@@ -1191,27 +1191,64 @@ const sentNotesField = StateField.define({
 });
 const direct = Annotation.define();
 
-// Turn typing into suggestions / instructions, depending on the edit mode.
+// Turn typing into suggestions / instructions, depending on the edit mode, and keep the hidden
+// {++ ++} {-- --} {>> <<} delimiters intact in every mode (including plain Edit).
+let blockedFn = null;
+const blocked = (why) => { if (blockedFn) setTimeout(() => blockedFn(why), 0); return []; };
 const suggestFilter = EditorState.transactionFilter.of((tr) => {
-  const mode = tr.startState.field(editModeField, false);
-  if (!mode || mode === 'edit' || !tr.docChanged || tr.annotation(direct) || tr.annotation(remote)) return tr;
+  const mode = tr.startState.field(editModeField, false) || 'edit';
+  if (!tr.docChanged || tr.annotation(direct) || tr.annotation(remote)) return tr;
   if (!(tr.isUserEvent('input') || tr.isUserEvent('delete'))) return tr;
+  const text = tr.startState.doc.toString();
+  if (mode === 'edit' && !/\{\+\+|\{--|\{>>/.test(text)) return tr; // nothing special in the file
   const changes = [];
   tr.changes.iterChanges((fromA, toA, _fb, _tb, ins) => changes.push({ fromA, toA, ins: ins.toString() }));
-  if (changes.length !== 1) return [];
-  const { fromA, toA, ins } = changes[0];
-  const text = tr.startState.doc.toString();
+  if (changes.length !== 1) return mode === 'edit' ? tr : [];
+  let { fromA, toA, ins } = changes[0];
   const marks = findMarks(text);
   const backward = tr.isUserEvent('delete.backward');
   const out = (from, to, insert, cursor) => [
     { changes: { from, to, insert }, selection: { anchor: cursor }, scrollIntoView: true, userEvent: backward ? 'delete.backward' : 'input' },
   ];
+  const inDelim = (x, a, b) => a >= x.from && b <= x.to && !(a >= x.cFrom && b <= x.cTo);
+
+  // Backspace / Delete that lands on a hidden delimiter acts on the visible character next to it.
+  let moved = false;
+  if (!ins && toA - fromA === 1) {
+    const m = marks.find((x) => inDelim(x, fromA, toA));
+    if (m) {
+      const inClose = fromA >= m.cTo;
+      const empty = m.cTo === m.cFrom;
+      if (backward) {
+        if (inClose) { if (empty) return out(m.from, m.to, '', m.from); fromA = m.cTo - 1; toA = m.cTo; }
+        else { if (m.from === 0) return []; fromA = m.from - 1; toA = m.from; }
+      } else if (!inClose) { if (empty) return out(m.from, m.to, '', m.from); fromA = m.cFrom; toA = m.cFrom + 1; }
+      else { if (m.to >= text.length) return []; fromA = m.to; toA = m.to + 1; }
+      moved = true;
+      if (marks.some((x) => inDelim(x, fromA, toA))) return [];
+    }
+  }
+  const plain = () => (moved ? out(fromA, toA, ins, backward ? fromA : fromA + ins.length) : tr);
   const inContent = (m) => fromA >= m.cFrom && toA <= m.cTo;
   const plainInside = (m) => {
-    // Editing the user's own pending suggestion / instruction text is a normal edit; drop the mark if it becomes empty.
+    // Editing text inside a mark is a normal edit; the mark disappears when it becomes empty.
     if (!ins && toA - fromA === m.cTo - m.cFrom) return out(m.from, m.to, '', m.from);
-    return tr;
+    return plain();
   };
+
+  if (mode === 'edit') {
+    const m = marks.find((x) => inContent(x));
+    if (m) return plainInside(m);
+    // A change that would cut a mark in half takes the whole mark, so no broken {>> or ++} is left behind.
+    let F = fromA, T = toA;
+    for (const x of marks) {
+      if (!(F < x.to && T > x.from)) continue;
+      if (F > x.from && F < x.to) F = x.from;
+      if (T > x.from && T < x.to) T = x.to;
+    }
+    if (F !== fromA || T !== toA) return out(F, T, ins, F + ins.length);
+    return plain();
+  }
 
   if (mode === 'instruct') {
     const note = marks.find((m) => m.type === 'note' && fromA >= m.from && toA <= m.to);
@@ -1220,9 +1257,11 @@ const suggestFilter = EditorState.transactionFilter.of((tr) => {
       if (fromA === toA) { const p = fromA <= note.cFrom ? note.cFrom : note.cTo; return out(p, p, ins, p + ins.length); }
       return [];
     }
-    if (!ins) return []; // instruction mode never deletes document text
+    if (!ins) return blocked('instruct'); // instruction mode never deletes document text
     const inside = marks.find((m) => fromA > m.from && fromA < m.to);
     const at = inside ? inside.to : fromA;
+    const prev = marks.find((m) => m.type === 'note' && m.to === at);
+    if (prev) return out(prev.cTo, prev.cTo, ins, prev.cTo + ins.length);
     return out(at, at, `{>>${ins}<<}`, at + 3 + ins.length);
   }
 
@@ -1239,17 +1278,15 @@ const suggestFilter = EditorState.transactionFilter.of((tr) => {
     if (prev) return out(prev.cTo, prev.cTo, ins, prev.cTo + ins.length);
     return out(at, at, `{++${ins}++}`, at + 3 + ins.length);
   }
-  // A deletion: never delete, mark the text as removed instead.
+  // A deletion of document text: keep it, marked as removed.
   let F = fromA, T = toA;
-  // Backspace / Delete right next to an existing removal: skip over it and extend it.
-  if (toA - fromA === 1 && !ins) {
-    const hit = marks.find((m) => m.type === 'del' && fromA >= m.from && toA <= m.to);
-    if (hit) {
-      if (backward) { if (hit.from === 0) return []; F = hit.from - 1; T = hit.from; }
-      else { if (hit.to >= text.length) return []; F = hit.to; T = hit.to + 1; }
-    }
+  const hit = marks.find((m) => m.type === 'del' && F >= m.cFrom && T <= m.cTo);
+  if (hit && toA - fromA === 1 && !ins) {
+    // Backspace inside an existing removal: continue before it.
+    if (backward) { if (hit.from === 0) return []; F = hit.from - 1; T = hit.from; }
+    else { if (hit.to >= text.length) return []; F = hit.to; T = hit.to + 1; }
   }
-  if (marks.some((m) => F < m.to && T > m.from)) return []; // would cut through existing marks
+  if (marks.some((m) => F < m.to && T > m.from)) return blocked('overlap');
   let content = text.slice(F, T);
   const left = marks.find((m) => m.type === 'del' && m.to === F);
   const right = marks.find((m) => m.type === 'del' && m.from === T);
@@ -1389,8 +1426,9 @@ const highlight = HighlightStyle.define([
 
 const mdLanguage = [markdown({ base: markdownLanguage, extensions: [MathExt] }), syntaxHighlighting(highlight)];
 
-function create(parent, { onChange, onSelection, onResolve, assetUrl } = {}) {
+function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked } = {}) {
   assetUrlFn = assetUrl || null;
+  blockedFn = onBlocked || null;
   const previewConf = new Compartment();
   const roConf = new Compartment();
   const langConf = new Compartment();
