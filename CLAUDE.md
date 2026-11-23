@@ -38,8 +38,9 @@ If the watcher prints that another watcher took over, stop — another chat is w
 The user can type in three modes. Their *suggestions* are stored in the file as CriticMarkup:
 `{++added text++}` and `{--removed text--}`. Leave these marks exactly as they are unless the user
 asks you to apply or reject them; edit around them. Their *instructions* are stored as
-`{>>instruction<<}` at the place they apply, and arrive as a `type=instructions` request: carry each
-one out, then delete the `{>>…<<}` note (that deletion is applied without review). Compiling LaTeX
+`{>>instruction<<}` at the place they apply (once sent: `{>>(sent) instruction<<}`), and arrive as a
+`type=instructions` request: carry each one out, then delete the whole `{>>…<<}` note (that deletion is
+applied without review). Compiling LaTeX
 uses a cleaned copy (suggestions applied, instructions removed), so the markup never breaks the PDF.
 
 ## Git

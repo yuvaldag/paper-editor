@@ -146,7 +146,7 @@ async function loadFile() {
   ed.setDoc(d.current);
   if (fresh) ed.resetCursor();
   renderTexControls();
-  ed.setReadOnly(pending);
+  ed.setReadOnly(false);
   $('#reviewBar').hidden = !pending;
   if (pending) {
     hideCommentUI();
@@ -200,33 +200,23 @@ $('#editMode').addEventListener('click', (e) => {
   if (m === 'suggest') toast('Suggest: your additions show in blue and removals in orange, to accept or reject later.', 5000);
   ed.focus();
 });
-function sentInstructionTexts() {
-  return S.requests
-    .filter((r) => r.type === 'instructions' && r.file === S.file && r.status !== 'done')
-    .flatMap((r) => (r.items || []).map((x) => x.text.trim()));
-}
 function renderMarks() {
   if (!S.doc) return;
   const marks = ed.getMarks();
   const sugs = marks.filter((m) => m.type !== 'note').length;
   $('#sugBar').hidden = !sugs || S.reviewing;
   $('#sugCount').textContent = sugs;
-  const sent = sentInstructionTexts();
-  const key = JSON.stringify(sent);
-  if (key !== S.sentKey) { S.sentKey = key; ed.setSentNotes(sent); }
-  const unsent = marks.filter((m) => m.type === 'note' && m.content.trim() && !sent.includes(m.content.trim()));
+  const unsent = marks.filter((m) => m.type === 'note' && !m.sent && m.content.trim());
   const btn = $('#sendNotes');
   btn.hidden = !unsent.length;
   btn.textContent = `➤ Send ${unsent.length} instruction${unsent.length > 1 ? 's' : ''} to Claude`;
-  $('#editMode').classList.toggle('disabled', S.reviewing);
 }
 $('#sugAccept').onclick = () => ed.resolveSuggestions(true);
 $('#sugReject').onclick = () => ed.resolveSuggestions(false);
 $('#sendNotes').onclick = async () => {
   await flushSave();
   const text = ed.getDoc();
-  const sent = sentInstructionTexts();
-  const notes = ed.getMarks().filter((m) => m.type === 'note' && m.content.trim() && !sent.includes(m.content.trim()));
+  const notes = ed.getMarks().filter((m) => m.type === 'note' && !m.sent && m.content.trim());
   if (!notes.length) return;
   const clean = (s) => s.replace(/\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g, (_, a) => a ?? '');
   const items = notes.map((m) => ({
@@ -240,6 +230,8 @@ $('#sendNotes').onclick = async () => {
       type: 'instructions', file: S.file, items,
       text: items.length === 1 ? items[0].text : `${items.length} instructions: ` + items.map((x) => `“${x.text}”`).join('; '),
     });
+    ed.markNotesSent(); // stored in the file, so "sent" stays on these notes
+    await flushSave();
     toast(S.watch.state === 'off' ? 'Instructions saved. No chat is watching this project yet.' : 'Instructions sent to Claude.');
     await refreshState();
     renderMarks();
@@ -388,8 +380,60 @@ function cardHTML(r, text) {
 }
 
 // ---------------- saving the user's edits ----------------
-function onUserEdit() {
-  if (S.reviewing || !S.doc) return;
+// Map a position in the current text to the accepted (base) text, using the review segments.
+// Inside Claude's inserted text there is no base text; a deleted passage sits at its position.
+function toBase(p) {
+  let c = 0, b = 0;
+  for (const s of S.segments) {
+    if (s.eq != null) {
+      if (p <= c + s.eq.length) return b + (p - c);
+      c += s.eq.length; b += s.eq.length;
+    } else {
+      if (p === c) return b;
+      if (p <= c + s.ins.length) return b + s.del.length;
+      c += s.ins.length; b += s.del.length;
+    }
+  }
+  return b;
+}
+function insideClaudeText(p) {
+  let c = 0;
+  for (const s of S.segments) {
+    if (s.eq != null) { c += s.eq.length; continue; }
+    if (s.ins && p >= c && p <= c + s.ins.length) return true;
+    c += s.ins.length;
+  }
+  return false;
+}
+// Editing while Claude's changes are under review: edits inside Claude's text change its suggestion;
+// edits elsewhere are the user's own and go into the accepted text as well, so they never show as Claude's.
+function onReviewEdit(changes) {
+  const edits = [];
+  changes.iterChanges((fromA, toA, _fb, _tb, ins) => {
+    if (insideClaudeText(fromA) && insideClaudeText(toA)) return; // only Claude's suggestion changes
+    const bFrom = toBase(fromA), bTo = Math.max(bFrom, toBase(toA));
+    edits.push({ bFrom, bTo, text: ins.toString() });
+  });
+  let base = S.doc.base;
+  for (const e of edits.sort((x, y) => y.bFrom - x.bFrom)) base = base.slice(0, e.bFrom) + e.text + base.slice(e.bTo);
+  const current = ed.getDoc();
+  S.doc.base = base;
+  S.doc.current = current;
+  S.segments = MDDiff.buildSegments(base, current);
+  S.reviewDirty = true;
+  S.dirty = true;
+  setTimeout(() => {
+    if (base === current) { S.reviewing = false; ed.setReview(null); $('#reviewBar').hidden = true; }
+    else { S.hunks = ed.setReview(S.segments); $('#changeCount').textContent = S.hunks.length; }
+    renderMarks();
+  }, 0);
+  $('#saveState').textContent = 'Unsaved…';
+  clearTimeout(S.saveT);
+  S.saveT = setTimeout(save, 600);
+}
+function onUserEdit(changes) {
+  if (!S.doc) return;
+  if (S.reviewing) return onReviewEdit(changes);
   S.dirty = true;
   $('#saveState').textContent = 'Unsaved…';
   clearTimeout(S.saveT);
@@ -403,6 +447,26 @@ async function save() {
   S.saving = true;
   const content = ed.getDoc();
   $('#saveState').textContent = 'Saving…';
+  if (S.reviewDirty) {
+    // Save both the accepted text and the text with Claude's (possibly edited) suggestions.
+    const base = S.doc.base;
+    try {
+      const r = await api('POST', `${F()}/resolve`, { base, current: content, expectBase: S.savedBaseHash || S.doc.baseHash, expectCurrent: S.savedHash || S.doc.hash });
+      S.savedHash = r.hash; S.savedBaseHash = r.baseHash;
+      S.doc.hash = r.hash; S.doc.baseHash = r.baseHash;
+      if (ed.getDoc() === content && S.doc.base === base) { S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null; $('#saveState').textContent = 'Saved'; }
+      else S.saveAgain = true;
+      if (base === content) await loadFile();
+    } catch (e) {
+      S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null;
+      toast(e.status === 409 ? 'Claude changed the file while you typed — reloaded it.' : e.message, 7000);
+      await loadFile();
+    } finally {
+      S.saving = false;
+      if (S.saveAgain) { S.saveAgain = false; if (S.dirty) save(); }
+    }
+    return;
+  }
   try {
     const r = await api('POST', `${F()}/save`, { content, expect: S.doc.hash });
     Object.assign(S.doc, { current: content, base: content, hash: r.hash, baseHash: r.hash });
@@ -432,6 +496,7 @@ async function flushSave() {
 
 // ---------------- review: accept / reject ----------------
 async function resolveHunk(idx, accept) {
+  await flushSave();
   if (!S.segments) return;
   const out = MDDiff.resolve(S.segments, idx, accept);
   const base = accept ? out : S.doc.base;
@@ -467,7 +532,7 @@ let lastMouse = { x: 200, y: 200 };
 const lineOf = (text, idx) => text.slice(0, idx).split('\n').length;
 
 function captureSelection() {
-  if (S.reviewing) return null;
+  if (!S.doc) return null;
   const { from, to } = ed.getSelection();
   const text = ed.getDoc();
   if (to - from < 1 || !text.slice(from, to).trim()) return null;

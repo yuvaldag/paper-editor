@@ -382,7 +382,9 @@ const reviewField = StateField.define({
   create: () => null,
   update(v, tr) {
     for (const e of tr.effects) if (e.is(setReviewEffect)) return e.value;
-    return v && tr.docChanged ? null : v;
+    if (v && tr.docChanged)
+      return { deco: v.deco.map(tr.changes), ranges: v.ranges.map(([a, b]) => [tr.changes.mapPos(a, -1), tr.changes.mapPos(b, 1)]) };
+    return v;
   },
   provide: (f) => EditorView.decorations.from(f, (v) => (v ? v.deco : Decoration.none)),
 });
@@ -1160,13 +1162,19 @@ function buildTexPreview(state) {
 // ---------- user suggestions & instructions (CriticMarkup) ----------
 // {++added++}  {--removed--}  are the user's suggested edits; {>>text<<} is an instruction for Claude.
 const MARK_RE = /\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g;
+// A note that was sent to Claude keeps this prefix inside the file: {>>(sent) text<<}
+const SENT = '(sent) ';
 function findMarks(text) {
   const out = [];
   const re = new RegExp(MARK_RE.source, 'g');
   let m;
   while ((m = re.exec(text))) {
     const type = m[1] != null ? 'ins' : m[2] != null ? 'del' : 'note';
-    out.push({ type, from: m.index, to: m.index + m[0].length, cFrom: m.index + 3, cTo: m.index + m[0].length - 3, content: m[1] ?? m[2] ?? m[3] });
+    let content = m[1] ?? m[2] ?? m[3];
+    const sent = type === 'note' && content.startsWith(SENT);
+    if (sent) content = content.slice(SENT.length);
+    const cFrom = m.index + 3 + (sent ? SENT.length : 0);
+    out.push({ type, from: m.index, to: m.index + m[0].length, cFrom, cTo: m.index + m[0].length - 3, content, sent });
   }
   return out;
 }
@@ -1303,7 +1311,11 @@ class SugCtl extends WidgetType {
   toDOM(view) {
     const s = document.createElement('span');
     s.className = 'cm-sugctl';
-    for (const [act, label, title] of [['accept', '✓', 'Accept this suggestion'], ['reject', '✕', 'Reject this suggestion']]) {
+    const buttons = this.type === 'note'
+      ? [['reject', '✕', 'Delete this instruction']]
+      : [['accept', '✓', 'Accept this suggestion'], ['reject', '✕', 'Reject this suggestion']];
+    if (this.type === 'note') s.classList.add('cm-notectl');
+    for (const [act, label, title] of buttons) {
       const b = document.createElement('button');
       b.textContent = label;
       b.title = title;
@@ -1312,9 +1324,9 @@ class SugCtl extends WidgetType {
       b.addEventListener('click', () => {
         let pos;
         try { pos = view.posAtDOM(s); } catch { return; }
-        const m = findMarks(view.state.doc.toString()).find((x) => x.to === pos && x.type !== 'note');
+        const m = findMarks(view.state.doc.toString()).find((x) => x.to === pos && (x.type === 'note') === (this.type === 'note'));
         if (!m) return;
-        const keep = (m.type === 'ins') === (act === 'accept') ? m.content : '';
+        const keep = m.type !== 'note' && (m.type === 'ins') === (act === 'accept') ? m.content : '';
         view.dispatch({ changes: { from: m.from, to: m.to, insert: keep }, annotations: direct.of(true) });
       });
       s.appendChild(b);
@@ -1327,17 +1339,16 @@ class SugCtl extends WidgetType {
 // Decorations for suggestions and instructions. `replace(a, b, spec)` adds a replace decoration (may refuse).
 function markupDecos(state, ctx, decos, math, replace) {
   const text = state.doc.toString();
-  const sent = state.field(sentNotesField, false) || new Set();
   for (const m of findMarks(text)) {
     if (math.some((x) => m.from < x.to && m.to > x.from)) continue;
     if (ctx.touchesChange(m.from, m.to)) continue;
-    const isSent = m.type === 'note' && sent.has(m.content.trim());
+    const isSent = m.type === 'note' && m.sent;
     const open = m.type === 'note' ? { widget: new HtmlWidget(isSent ? '➤ sent' : '➤', 'cm-note-tag') } : {};
     if (!replace(m.from, m.cFrom, open)) continue;
     replace(m.cTo, m.to, {});
     if (m.cTo > m.cFrom)
       decos.push(Decoration.mark({ class: m.type === 'ins' ? 'cm-sug-ins' : m.type === 'del' ? 'cm-sug-del' : isSent ? 'cm-note cm-note-sent' : 'cm-note' }).range(m.cFrom, m.cTo));
-    if (m.type !== 'note') decos.push(Decoration.widget({ widget: new SugCtl(m.type), side: 1 }).range(m.to));
+    decos.push(Decoration.widget({ widget: new SugCtl(m.type), side: 1 }).range(m.to));
   }
 }
 
@@ -1452,7 +1463,7 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
         roConf.of([]),
         keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.updateListener.of((u) => {
-          if (u.docChanged && !u.transactions.some((tr) => tr.annotation(remote)) && onChange) onChange();
+          if (u.docChanged && !u.transactions.some((tr) => tr.annotation(remote)) && onChange) onChange(u.changes);
           if (u.selectionSet && onSelection) onSelection();
         }),
       ],
@@ -1498,8 +1509,11 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       view.dom.dataset.editMode = mode;
     },
     getMarks: () => findMarks(view.state.doc.toString()),
-    setSentNotes(texts) {
-      view.dispatch({ effects: setSentNotesEffect.of(new Set(texts.map((x) => x.trim()))) });
+    // Prefix every unsent instruction with "(sent) " (stored in the file, hidden in the editor).
+    markNotesSent() {
+      const marks = findMarks(view.state.doc.toString()).filter((m) => m.type === 'note' && !m.sent && m.content.trim());
+      if (marks.length) view.dispatch({ changes: marks.map((m) => ({ from: m.cFrom, insert: SENT })), annotations: direct.of(true) });
+      return marks.length;
     },
     // Accept or reject all of the user's suggestions at once (instructions are left alone).
     resolveSuggestions(accept) {

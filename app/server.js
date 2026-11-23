@@ -243,9 +243,10 @@ async function handleApi(req, res, parts, url) {
         const d = L.readDoc(p, f);
         if (L.hash(d.current) !== b.expectCurrent || L.hash(d.base) !== b.expectBase)
           return send(res, 409, { error: 'The file changed meanwhile' });
-        L.writeDoc(p, f, str(b.base, 20e6), str(b.current, 20e6));
+        const nb = str(b.base, 20e6), nc = str(b.current, 20e6);
+        L.writeDoc(p, f, nb, nc);
         Git.noteEdit(p);
-        return send(res, 200, { ok: true });
+        return send(res, 200, { ok: true, hash: L.hash(nc), baseHash: L.hash(nb) });
       }
     }
 
