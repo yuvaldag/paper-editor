@@ -1645,6 +1645,48 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
 
   const api = {
     view,
+    // Section headings for the outline: [{ level, html, pos }]
+    getOutline() {
+      const st = view.state, doc = st.doc, out = [];
+      if (st.field(modeField) === 'tex') {
+        const M = texModel(st);
+        for (const x of M.sections) {
+          const title = doc.sliceString(x.open + 1, x.close);
+          out.push({ level: Math.max(1, x.level), pos: x.from, html: (x.number ? `<span class="ol-num">${x.number}</span> ` : '') + texInline(stripMarkup(title)) });
+        }
+        return out;
+      }
+      getTree(st).iterate({
+        enter(n) {
+          const m = /^(ATXHeading|SetextHeading)(\d)$/.exec(n.name);
+          if (!m) return;
+          let t = doc.sliceString(n.from, n.to);
+          t = m[1] === 'ATXHeading' ? t.replace(/^\s*#+\s*/, '').replace(/\s+#+\s*$/, '') : t.split('\n')[0];
+          t = stripMarkup(t).replace(/(\*\*|__|\*|_|`)/g, '');
+          out.push({ level: +m[2], pos: n.from, html: texInline(t) });
+          return false;
+        },
+      });
+      return out;
+    },
+    // Position at the top of the visible area (to highlight the current section).
+    topPos() {
+      const b = view.lineBlockAtHeight(view.scrollDOM.scrollTop + 40);
+      return b ? b.from : 0;
+    },
+    goTo(pos) {
+      view.dispatch({ selection: { anchor: pos }, effects: EditorView.scrollIntoView(pos, { y: 'start', yMargin: 24 }) });
+    },
+    onScroll(fn) { view.scrollDOM.addEventListener('scroll', fn, { passive: true }); },
+    // Open the accept / reject bar on one of Claude's changes (used to step through them one by one).
+    showChangeBar(idx) {
+      const el = view.dom.querySelector(`[data-h="${idx}"]`);
+      if (!el) return false;
+      const r = el.getBoundingClientRect();
+      tipTarget = null;
+      showTip(el, { kind: 'hunk', idx }, r.left + Math.min(r.width / 2, 80));
+      return true;
+    },
     getDoc: () => view.state.doc.toString(),
     // 'md' or 'tex'
     setMode(mode) {

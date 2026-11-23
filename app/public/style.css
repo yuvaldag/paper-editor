@@ -484,3 +484,23 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .cm-hovered, .cm-focus-hunk { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
 .cm-ins, .cm-del, .cm-sug-ins, .cm-sug-del, .cm-note { cursor: pointer; }
 .cm-ins-ws { opacity: .7; padding: 0 2px; }
+
+.rb-one { display: inline-flex; gap: 0; margin: 0 4px; }
+.rb-one button { border-radius: 0; color: #fff; border: 0; padding: 4px 10px; }
+.rb-one .rb-ok { background: #16a34a; border-radius: 6px 0 0 6px; }
+.rb-one .rb-no { background: #dc2626; border-radius: 0 6px 6px 0; }
+.rb-one button:hover { filter: brightness(1.12); }
+
+/* outline (bottom of the left sidebar) */
+#outlineBox { margin-top: auto; padding-top: 8px; border-top: 1px solid var(--border); display: flex; flex-direction: column; min-height: 0; max-height: 50vh; }
+#outlineBox + .conn { margin-top: 0; }
+.nav.outline { overflow: auto; padding-bottom: 6px; }
+.nav.outline li { font-size: 12.5px; padding: 3px 8px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; display: block; color: var(--text); }
+.nav.outline li.ol-l0 { font-weight: 600; }
+.nav.outline li.ol-l1 { padding-left: 20px; }
+.nav.outline li.ol-l2 { padding-left: 32px; color: var(--muted); }
+.nav.outline li.ol-l3 { padding-left: 44px; color: var(--muted); font-size: 12px; }
+.nav.outline li.active { background: var(--accent-soft); color: var(--accent); }
+.nav.outline .ol-num { color: var(--muted); margin-right: 2px; font-weight: 400; }
+.nav.outline .katex { font-size: 1em; }
+#sidebar { min-height: 0; }

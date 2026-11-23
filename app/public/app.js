@@ -175,6 +175,7 @@ async function loadFile() {
   }
   renderHighlights();
   renderMarks();
+  renderOutline();
   if (pending && !S.autoNoteFix) autoAcceptNoteRemovals();
 }
 
@@ -190,6 +191,35 @@ async function autoAcceptNoteRemovals() {
     await loadFile();
   } catch {} finally { S.autoNoteFix = false; }
 }
+
+// ---------------- outline: sections / subsections, click to jump ----------------
+function renderOutline() {
+  const box = $('#outlineBox');
+  const items = S.doc ? ed.getOutline() : [];
+  box.hidden = !items.length;
+  if (!items.length) { $('#outline').innerHTML = ''; S.outline = []; return; }
+  const min = Math.min(...items.map((x) => x.level));
+  S.outline = items;
+  $('#outline').innerHTML = items
+    .map((x, i) => `<li data-i="${i}" class="ol-l${Math.min(x.level - min, 3)}" title="${esc(x.html.replace(/<[^>]*>/g, ''))}">${x.html}</li>`)
+    .join('');
+  markActiveSection();
+}
+function markActiveSection() {
+  if (!S.outline || !S.outline.length) return;
+  const top = ed.topPos();
+  let cur = 0;
+  S.outline.forEach((x, i) => { if (x.pos <= top) cur = i; });
+  document.querySelectorAll('#outline li').forEach((li) => li.classList.toggle('active', +li.dataset.i === cur));
+}
+$('#outline').addEventListener('click', (e) => {
+  const li = e.target.closest('li');
+  if (!li) return;
+  ed.goTo(S.outline[+li.dataset.i].pos);
+  setTimeout(markActiveSection, 50);
+});
+let olRaf = 0;
+ed.onScroll(() => { if (!olRaf) olRaf = requestAnimationFrame(() => { olRaf = 0; markActiveSection(); }); });
 
 // ---------------- suggestions / instructions (edit modes) ----------------
 function setEditMode(mode) {
@@ -490,6 +520,8 @@ function onUserEdit(changes) {
   S.saveT = setTimeout(save, 600);
   renderHighlights();
   renderMarks();
+  clearTimeout(S.outlineT);
+  S.outlineT = setTimeout(renderOutline, 400);
 }
 async function save() {
   if (!S.doc || !S.dirty) return;
@@ -580,6 +612,7 @@ async function flushSave() {
 async function resolveHunk(idx, accept) {
   await flushSave();
   if (!S.segments) return;
+  const at = idx === -1 ? null : (S.hunks.find((h) => h.idx === idx) || {}).pos;
   const out = MDDiff.resolve(S.segments, idx, accept);
   const base = accept ? out : S.doc.base;
   const current = accept ? S.doc.current : out;
@@ -590,19 +623,39 @@ async function resolveHunk(idx, accept) {
   }
   await loadFile();
   scheduleCompile();
+  if (at != null) goToChangeAfter(at); // one by one: continue with the next change
 }
+// The first change at or after `pos` (wrapping around), highlighted with its accept / reject bar open.
+function goToChangeAfter(pos) {
+  if (!S.reviewing || !S.hunks.length) { toast('All of Claude’s changes are reviewed.', 3000); return; }
+  focusChange(S.hunks.find((h) => h.pos >= pos) || S.hunks[0]);
+}
+function focusChange(h) {
+  S.focusHunk = h.idx;
+  ed.scrollTo(h.pos);
+  setTimeout(() => {
+    document.querySelectorAll('#editorHost .cm-focus-hunk').forEach((x) => x.classList.remove('cm-focus-hunk'));
+    document.querySelectorAll(`#editorHost [data-h="${h.idx}"]`).forEach((x) => x.classList.add('cm-focus-hunk'));
+    ed.showChangeBar(h.idx);
+  }, 120);
+}
+function currentChange() {
+  return S.hunks.find((h) => h.idx === S.focusHunk);
+}
+async function resolveCurrent(accept) {
+  const h = currentChange();
+  if (!h) return S.hunks.length && focusChange(S.hunks[0]); // first press: show which change is next
+  await resolveHunk(h.idx, accept);
+}
+$('#acceptOne').onclick = () => resolveCurrent(true);
+$('#rejectOne').onclick = () => resolveCurrent(false);
 $('#acceptAll').onclick = () => resolveHunk(-1, true);
 $('#rejectAll').onclick = () => resolveHunk(-1, false);
 function moveFocus(dir) {
   if (!S.hunks.length) return;
   let pos = S.hunks.findIndex((h) => h.idx === S.focusHunk);
   pos = pos < 0 ? (dir > 0 ? 0 : S.hunks.length - 1) : (pos + dir + S.hunks.length) % S.hunks.length;
-  S.focusHunk = S.hunks[pos].idx;
-  ed.scrollTo(S.hunks[pos].pos);
-  setTimeout(() => {
-    document.querySelectorAll('#editorHost .cm-focus-hunk').forEach((x) => x.classList.remove('cm-focus-hunk'));
-    document.querySelectorAll(`#editorHost [data-h="${S.focusHunk}"]`).forEach((x) => x.classList.add('cm-focus-hunk'));
-  }, 60);
+  focusChange(S.hunks[pos]);
 }
 $('#nextChange').onclick = () => moveFocus(1);
 $('#prevChange').onclick = () => moveFocus(-1);

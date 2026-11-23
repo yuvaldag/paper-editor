@@ -17,6 +17,10 @@
     <ul id="fileList" class="nav"></ul>
     <div class="section-title" id="gitTitle" hidden>Git <button id="gitSettingsBtn" class="icon" title="Git settings">⚙</button></div>
     <div id="gitPanel"></div>
+    <div id="outlineBox" hidden>
+      <div class="section-title">Outline</div>
+      <ul id="outline" class="nav outline"></ul>
+    </div>
     <div id="conn" class="conn"></div>
   </aside>
 
@@ -58,8 +62,11 @@
       <div class="spacer"></div>
       <button id="prevChange" class="ghost" title="Previous change">↑</button>
       <button id="nextChange" class="ghost" title="Next change">↓</button>
-      <button id="rejectAll" class="danger">Reject all</button>
-      <button id="acceptAll" class="primary">Accept all</button>
+      <span class="rb-one" title="Accept or reject the highlighted change, then go to the next one">
+        <button id="acceptOne" class="rb-ok">✓ Accept</button><button id="rejectOne" class="rb-no">✕ Reject</button>
+      </span>
+      <button id="rejectAll" class="danger ghost">Reject all</button>
+      <button id="acceptAll" class="ghost">Accept all</button>
     </div>
 
     <div id="texErrors" hidden></div>
