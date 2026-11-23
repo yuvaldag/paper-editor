@@ -79,6 +79,7 @@ async function openProject(p, f = null) {
 }
 async function openFile(f) {
   await flushSave();
+  if (S.draft && S.draft.file !== f) hideCommentUI();
   S.file = f;
   S.doc = null;
   S.lastCompile = null;
@@ -150,7 +151,7 @@ async function loadFile() {
   ed.setReadOnly(false);
   $('#reviewBar').hidden = !pending;
   if (pending) {
-    hideCommentUI();
+    pop.hidden = true;
     S.segments = MDDiff.buildSegments(d.base, d.current);
     S.hunks = ed.setReview(S.segments);
     $('#changeCount').textContent = S.hunks.length;
@@ -313,7 +314,7 @@ function anchor(r, text) {
 }
 const isClosed = (r) => r.status === 'done' || r.status === 'read';
 function renderHighlights() {
-  if (S.reviewing) return ed.setAnnotations([]);
+  if (S.reviewing && !(S.draft && !form.hidden)) return ed.setAnnotations([]);
   const text = ed.getDoc();
   const list = [];
   for (const r of S.requests) {
@@ -321,6 +322,10 @@ function renderHighlights() {
     if (r.type === 'message' ? r.status !== 'unread' : r.status === 'done') continue;
     const a = anchor(r, text);
     if (a) list.push({ from: a.start, to: a.end, cls: (r.type === 'message' ? 'msg' : r.status) + (r.id === S.hotReq ? ' hot' : '') });
+  }
+  if (S.draft && S.draft.file === S.file && !form.hidden) {
+    const a = anchor(S.draft, text);
+    if (a) list.push({ from: a.start, to: a.end, cls: 'draft' });
   }
   ed.setAnnotations(list);
 }
@@ -345,11 +350,21 @@ function renderRequests() {
   const key = JSON.stringify([list, S.hotReq, showDone, text.length, S.replyTo]);
   if (key === S.lastReqJSON) return;
   S.lastReqJSON = key;
+  // A reply being typed must survive this re-render (the list refreshes when Claude answers).
+  const rb = document.querySelector('.replybox textarea');
+  const draft = rb && { value: rb.value, focus: document.activeElement === rb, a: rb.selectionStart, b: rb.selectionEnd };
+  const scroll = $('#requestList').scrollTop;
   $('#requestList').innerHTML = list.length
     ? list.map((r) => cardHTML(r, text)).join('')
     : `<div class="empty-note">Select text in the editor and click <b>💬 Comment</b>, or write a request below. Claude's messages to you show up here too.${
         S.watch.state === 'off' ? '<br><br>No chat is watching this project yet — requests are queued until one does.' : ''
       }</div>`;
+  $('#requestList').scrollTop = scroll;
+  const nb = document.querySelector('.replybox textarea');
+  if (draft && nb) {
+    nb.value = draft.value;
+    if (draft.focus) { nb.focus(); nb.setSelectionRange(draft.a, draft.b); }
+  }
 }
 function cardHTML(r, text) {
   const detached = r.quote && !isClosed(r) && !anchor(r, text);
@@ -587,6 +602,7 @@ function showPop(sel, x, y, convertOnly = false) {
   pop.hidden = false;
 }
 function hideCommentUI() {
+  if (!form.hidden) { S.draft = null; setTimeout(renderHighlights, 0); }
   pop.hidden = true;
   form.hidden = true;
 }
@@ -731,6 +747,7 @@ $('#compileState').addEventListener('click', () => {
 });
 function openCommentForm() {
   if (!S.sel) return;
+  S.draft = { ...S.sel, file: S.file };
   pop.hidden = true;
   form.querySelector('.cf-quote').textContent = S.sel.quote;
   form.style.left = Math.min(lastMouse.x, innerWidth - 340) + 'px';
@@ -739,6 +756,7 @@ function openCommentForm() {
   const ta = form.querySelector('textarea');
   ta.value = '';
   ta.focus();
+  renderHighlights();
 }
 form.addEventListener('click', (e) => {
   const act = e.target.dataset.act;
@@ -751,9 +769,12 @@ form.querySelector('textarea').addEventListener('keydown', (e) => {
 });
 async function sendComment() {
   const text = form.querySelector('textarea').value.trim();
-  if (!text || !S.sel) return;
+  if (!text || !S.draft) return;
   await flushSave();
-  const src = ed.getDoc(), { start, end, quote } = S.sel;
+  const src = ed.getDoc();
+  // The text may have moved (e.g. Claude edited the file while the comment was being written): find it again.
+  const a = anchor(S.draft, src) || { start: S.draft.start, end: S.draft.end };
+  const { start, end } = a, quote = S.draft.quote;
   try {
     await api('POST', `${P()}/requests`, {
       type: 'comment', file: S.file, text, quote, start, end, line: lineOf(src, start),
@@ -761,6 +782,7 @@ async function sendComment() {
     });
     hideCommentUI();
     S.sel = null;
+    S.draft = null;
     toast(S.watch.state === 'off' ? 'Comment saved. No chat is watching this project yet.' : 'Comment sent to Claude.');
     refreshState();
   } catch (e) {

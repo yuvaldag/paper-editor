@@ -394,3 +394,5 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 #commentPop .conv button[data-conv=ins] { color: #2563eb; }
 #commentPop .conv button[data-conv=note] { color: #9333ea; }
 #commentPop .conv button.on { background: var(--bg); color: var(--muted); opacity: .7; }
+
+.cm-comment.draft { background: rgba(250, 204, 21, .3); outline: 1px dashed rgba(202, 138, 4, .8); }
