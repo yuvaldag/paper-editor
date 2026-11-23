@@ -38,6 +38,7 @@ async function api(method, url, body) {
     headers: body ? { 'Content-Type': 'application/json' } : {},
     body: body ? JSON.stringify(body) : undefined,
   });
+  checkVersion(r.headers.get('X-App-Version'));
   const j = await r.json().catch(() => ({}));
   if (!r.ok) {
     const e = new Error(j.error || r.statusText);
@@ -48,6 +49,19 @@ async function api(method, url, body) {
   return j;
 }
 const P = () => `/api/p/${enc(S.project)}`;
+
+// The app itself was updated on disk: offer a reload (after saving) instead of silently running old code.
+const LOADED_VERSION = (document.querySelector('meta[name=app-version]') || {}).content || null;
+let updateShown = false;
+function checkVersion(v) {
+  if (!v || !LOADED_VERSION || v === LOADED_VERSION || updateShown) return;
+  updateShown = true;
+  const bar = document.createElement('div');
+  bar.id = 'updateBar';
+  bar.innerHTML = '<span>Paper Editor was updated.</span><button class="primary">Reload</button>';
+  bar.querySelector('button').onclick = async () => { await flushSave(); location.reload(); };
+  document.body.appendChild(bar);
+}
 const F = () => `${P()}/file/${enc(S.file)}`;
 
 let toastT;

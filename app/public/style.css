@@ -430,3 +430,5 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .cm-line.cm-quote.cm-li-d2 { padding-left: calc(16px + 3.4em); }
 .cm-li-mark { display: inline-block; width: 1.3em; text-indent: 0; color: var(--accent); font-weight: 700; }
 .cm-li-num { width: auto; min-width: 1.3em; margin-right: .35em; font-weight: 600; color: var(--muted); }
+
+#updateBar { position: fixed; top: 10px; left: 50%; transform: translateX(-50%); z-index: 40; display: flex; align-items: center; gap: 12px; background: #111827; color: #fff; padding: 8px 10px 8px 16px; border-radius: 10px; box-shadow: 0 8px 24px rgba(0,0,0,.3); font-size: 13px; }
