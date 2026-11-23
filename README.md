@@ -24,7 +24,7 @@ folder, so no server or account is involved apart from git remotes you choose to
 - **Comments for Claude**: select text and click *Comment*, or send a general request. A chat that
   watches the project wakes up, edits the file, and replies under your comment.
 - **Three editing modes**: *Edit* (direct), *Suggest* (your additions in blue, removals in orange, each
-  with accept/reject) and *Instruct* (purple notes in the text that you send to Claude). Select text, or
+  with accept/reject) and *Instruct* (purple notes in the text that you send to Claude, all at once or one at a time from the note's hover bar). Select text, or
   click inside a note or suggestion, to change it into plain text, a suggestion or an instruction.
 - **Tracked changes**: Claude's insertions and deletions are shown inline; hover one to accept or reject
   it, or step through them one by one with ✓ Accept / ✕ Reject in the review bar. Your own typing is saved directly.

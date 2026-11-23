@@ -1539,7 +1539,7 @@ const highlight = HighlightStyle.define([
 
 const mdLanguage = [markdown({ base: markdownLanguage, extensions: [MathExt] }), syntaxHighlighting(highlight)];
 
-function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked } = {}) {
+function create(parent, { onChange, onSelection, onResolve, onSendNote, assetUrl, onBlocked } = {}) {
   assetUrlFn = assetUrl || null;
   blockedFn = onBlocked || null;
   const previewConf = new Compartment();
@@ -1590,7 +1590,8 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
     hunk: '<span class="lbl">Claude</span><button data-act="accept" class="ok">✓ Accept</button><button data-act="reject" class="no">✕ Reject</button>',
     ins: '<span class="lbl">Your suggestion</span><button data-act="accept" class="ok sug">✓ Accept</button><button data-act="reject" class="no sug">✕ Reject</button>',
     del: '<span class="lbl">Your suggestion</span><button data-act="accept" class="ok sug">✓ Remove</button><button data-act="reject" class="no sug">✕ Keep</button>',
-    note: '<span class="lbl">Instruction</span><button data-act="reject" class="no">✕ Delete</button>',
+    note: '<span class="lbl">Instruction</span><button data-act="send" class="send">➤ Send to Claude</button><button data-act="reject" class="no">✕ Delete</button>',
+    noteSent: '<span class="lbl">Instruction · sent</span><button data-act="reject" class="no">✕ Delete</button>',
   };
   view.dom.addEventListener('mouseover', (e) => {
     const el = e.target.closest && e.target.closest('[data-h], .cm-sug-ins, .cm-sug-del, .cm-note, .cm-note-tag');
@@ -1603,7 +1604,7 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       try { pos = view.posAtDOM(el); } catch { return; }
       const m = findMarks(view.state.doc.toString()).find((x) => pos >= x.from && pos <= x.to);
       if (!m) return;
-      target = { kind: m.type, from: m.from };
+      target = { kind: m.type === 'note' && (m.sent || !m.content.trim()) ? 'noteSent' : m.type, from: m.from };
     }
     clearTimeout(swapT);
     if (tipTarget && tipTarget.kind === target.kind && tipTarget.idx === target.idx && tipTarget.from === target.from) return;
@@ -1639,6 +1640,7 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
     if (t.kind === 'hunk') { if (onResolve) onResolve(t.idx, accept); return; }
     const m = findMarks(view.state.doc.toString()).find((x) => x.from === t.from);
     if (!m) return;
+    if (b.dataset.act === 'send') { if (onSendNote) onSendNote(m.from); return; }
     const keep = m.type !== 'note' && (m.type === 'ins') === accept ? m.content : '';
     view.dispatch({ changes: { from: m.from, to: m.to, insert: keep }, annotations: direct.of(true) });
   });
@@ -1771,8 +1773,9 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       view.focus();
     },
     // Prefix every unsent instruction with "(sent) " (stored in the file, hidden in the editor).
-    markNotesSent() {
-      const marks = findMarks(view.state.doc.toString()).filter((m) => m.type === 'note' && !m.sent && m.content.trim());
+    // `only`: positions (from) of the notes to mark; all unsent notes when omitted.
+    markNotesSent(only) {
+      const marks = findMarks(view.state.doc.toString()).filter((m) => m.type === 'note' && !m.sent && m.content.trim() && (!only || only.includes(m.from)));
       if (marks.length) view.dispatch({ changes: marks.map((m) => ({ from: m.cFrom, insert: SENT })), annotations: direct.of(true) });
       return marks.length;
     },

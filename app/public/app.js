@@ -19,6 +19,7 @@ const isTex = () => !!S.file && S.file.endsWith('.tex');
 const ed = MDEditor.create($('#editorHost'), {
   onChange: onUserEdit,
   onResolve: (idx, accept) => resolveHunk(idx, accept),
+  onSendNote: (from) => sendNotes(from),
   assetUrl: (f) => (S.project ? `${P()}/asset/${f.split('/').map(enc).join('/')}` : null),
   onBlocked: (why) => {
     const b = $('#modeBanner');
@@ -259,10 +260,12 @@ function renderMarks() {
 }
 $('#sugAccept').onclick = () => ed.resolveSuggestions(true);
 $('#sugReject').onclick = () => ed.resolveSuggestions(false);
-$('#sendNotes').onclick = async () => {
+$('#sendNotes').onclick = () => sendNotes();
+// Send all unsent instructions, or only the one starting at `only` (from its hover bar).
+async function sendNotes(only) {
   await flushSave();
   const text = ed.getDoc();
-  const notes = ed.getMarks().filter((m) => m.type === 'note' && !m.sent && m.content.trim());
+  const notes = ed.getMarks().filter((m) => m.type === 'note' && !m.sent && m.content.trim() && (only == null || m.from === only));
   if (!notes.length) return;
   const clean = (s) => s.replace(/\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g, (_, a) => a ?? '');
   const items = notes.map((m) => ({
@@ -276,13 +279,14 @@ $('#sendNotes').onclick = async () => {
       type: 'instructions', file: S.file, items,
       text: items.length === 1 ? items[0].text : `${items.length} instructions: ` + items.map((x) => `“${x.text}”`).join('; '),
     });
-    ed.markNotesSent(); // stored in the file, so "sent" stays on these notes
+    ed.markNotesSent(notes.map((m) => m.from)); // stored in the file, so "sent" stays on these notes
     await flushSave();
-    toast(S.watch.state === 'off' ? 'Instructions saved. No chat is watching this project yet.' : 'Instructions sent to Claude.');
+    const what = notes.length === 1 ? 'Instruction' : 'Instructions';
+    toast(S.watch.state === 'off' ? `${what} saved. No chat is watching this project yet.` : `${what} sent to Claude.`);
     await refreshState();
     renderMarks();
   } catch (e) { toast(e.message); }
-};
+}
 
 // ---------------- rendering ----------------
 function renderEmpty() {

@@ -477,6 +477,7 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 .cm-hovertip .lbl { opacity: .65; margin-right: 4px; font-size: 11px; }
 .cm-hovertip button { font: inherit; font-size: 12px; border: 0; border-radius: 6px; padding: 3px 9px; cursor: pointer; color: #fff; }
 .cm-hovertip button.ok { background: #16a34a; }
+.cm-hovertip button.send { background: #7c3aed; }
 .cm-hovertip button.no { background: #dc2626; }
 .cm-hovertip button.ok.sug { background: #2563eb; }
 .cm-hovertip button.no.sug { background: #ea580c; }
