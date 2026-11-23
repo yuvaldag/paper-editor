@@ -419,3 +419,14 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 #editorHost .cm-tex-mode .cm-panels { color-scheme: light; }
 
 @media (prefers-color-scheme: dark) { :root { --quote-bg: rgba(139, 140, 255, .08); } }
+
+/* markdown lists: bullets and hanging indent */
+.cm-line.cm-li { text-indent: -1.3em; }
+.cm-line.cm-li-d1 { padding-left: 1.7em; }
+.cm-line.cm-li-d2 { padding-left: 3.4em; }
+.cm-line.cm-li-d3 { padding-left: 5.1em; }
+.cm-line.cm-li-d4 { padding-left: 6.8em; }
+.cm-line.cm-quote.cm-li-d1 { padding-left: calc(16px + 1.7em); }
+.cm-line.cm-quote.cm-li-d2 { padding-left: calc(16px + 3.4em); }
+.cm-li-mark { display: inline-block; width: 1.3em; text-indent: 0; color: var(--accent); font-weight: 700; }
+.cm-li-num { width: auto; min-width: 1.3em; margin-right: .35em; font-weight: 600; color: var(--muted); }

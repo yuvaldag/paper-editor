@@ -486,6 +486,24 @@ function buildMdPreview(state) {
         }
         return name === 'Blockquote' ? undefined : false;
       }
+      if (name === 'ListMark') {
+        // "- item" / "* item" -> a bullet (• ◦ ▪ by depth), "1. item" keeps its number; wrapped lines hang under the text.
+        const item = n.node.parent, list = item && item.parent;
+        if (!list || (list.name !== 'BulletList' && list.name !== 'OrderedList')) return;
+        const l = doc.lineAt(n.from);
+        let depth = 0;
+        for (let x = list; x; x = x.parent) if (x.name === 'BulletList' || x.name === 'OrderedList') depth++;
+        decos.push(Decoration.line({ class: `cm-li cm-li-d${Math.min(depth, 4)}` }).range(l.from));
+        if (lineActive(n.from) || touchesChange(l.from, n.to)) return;
+        const prefix = doc.sliceString(l.from, n.from);
+        if (!/^[\s>]*$/.test(prefix)) return;
+        const start = prefix.trim() === '' ? l.from : n.from;
+        const end = doc.sliceString(n.to, n.to + 1) === ' ' ? n.to + 1 : n.to;
+        const ordered = list.name === 'OrderedList';
+        const mark = ordered ? doc.sliceString(n.from, n.to) : ['•', '◦', '▪', '•'][(depth - 1) % 4];
+        decos.push(Decoration.replace({ widget: new HtmlWidget(escHtml(mark), ordered ? 'cm-li-mark cm-li-num' : 'cm-li-mark') }).range(start, end));
+        return;
+      }
       if (name === 'QuoteMark') {
         if (lineActive(n.from) || touchesChange(n.from, n.to) || mdMath.some((m) => n.from >= m.from && n.to <= m.to)) return;
         const end = doc.sliceString(n.to, n.to + 1) === ' ' ? n.to + 1 : n.to;
