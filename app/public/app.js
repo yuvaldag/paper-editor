@@ -571,10 +571,19 @@ function captureSelection() {
   if (to - from < 1 || !text.slice(from, to).trim()) return null;
   return { start: from, end: to, quote: text.slice(from, to) };
 }
-function showPop(sel, x, y) {
+function showPop(sel, x, y, convertOnly = false) {
   S.sel = sel;
-  pop.style.left = Math.min(x + 8, innerWidth - 130) + 'px';
-  pop.style.top = Math.max(y - 42, 8) + 'px';
+  // Which kind is the selection now? (to grey out the matching "Make" button)
+  const marks = ed.marksAt(sel.start, sel.end);
+  const kinds = new Set(marks.map((m) => m.type));
+  const current = kinds.size === 1 && (sel.start === sel.end || marks.every((m) => m.from <= sel.start && m.to >= sel.end)) ? [...kinds][0] : kinds.size ? 'mixed' : 'text';
+  pop.querySelectorAll('[data-conv]').forEach((b) => {
+    b.classList.toggle('on', b.dataset.conv === current);
+    b.disabled = b.dataset.conv === current;
+  });
+  $('#commentBtn').hidden = convertOnly;
+  pop.style.left = Math.max(8, Math.min(x - 40, innerWidth - 300)) + 'px';
+  pop.style.top = Math.max(y - (convertOnly ? 46 : 80), 8) + 'px';
   pop.hidden = false;
 }
 function hideCommentUI() {
@@ -584,8 +593,21 @@ function hideCommentUI() {
 document.addEventListener('mousemove', (e) => (lastMouse = { x: e.clientX, y: e.clientY }));
 $('#editorHost').addEventListener('mouseup', (e) => setTimeout(() => {
   const sel = captureSelection();
-  if (sel) showPop(sel, e.clientX, e.clientY); else pop.hidden = true;
+  if (sel) return showPop(sel, e.clientX, e.clientY);
+  // A click inside a suggestion or instruction: offer to change its kind.
+  const { from, to } = ed.getSelection();
+  if (from === to && ed.marksAt(from, from).length) return showPop({ start: from, end: from, quote: '' }, e.clientX, e.clientY, true);
+  pop.hidden = true;
 }, 0));
+pop.addEventListener('click', (e) => {
+  const t = e.target.dataset.conv;
+  if (!t || !S.sel) return;
+  const names = { text: 'plain text', ins: 'a suggestion', note: 'an instruction' };
+  if (ed.convertRange(S.sel.start, S.sel.end, t)) toast(`Changed to ${names[t]}.`, 2500);
+  pop.hidden = true;
+  S.sel = null;
+  ed.focus();
+});
 $('#editorHost').addEventListener('keyup', (e) => {
   if (!e.shiftKey) return;
   const sel = captureSelection();

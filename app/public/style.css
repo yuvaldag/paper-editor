@@ -384,3 +384,13 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 @keyframes bannerflash { 50% { filter: brightness(1.35); box-shadow: inset 0 0 0 2px #a855f7; } }
 #reviewBar, #sugBar, #mergeBar, #modeBanner { flex-wrap: wrap; row-gap: 6px; }
 .cm-notectl button { border-color: #d8b4fe; color: #9333ea; }
+
+#commentPop { display: flex; flex-direction: column; align-items: flex-start; gap: 4px; }
+#commentPop .conv { display: flex; align-items: center; gap: 2px; background: var(--panel); border: 1px solid var(--border); border-radius: 8px; padding: 3px 4px; box-shadow: 0 4px 14px rgba(0,0,0,.18); font-size: 12px; }
+#commentPop .conv span { color: var(--muted); padding: 0 4px; font-size: 11px; }
+#commentPop .conv button { box-shadow: none; background: transparent; color: var(--text); border: 1px solid transparent; font-size: 12px; padding: 2px 8px; }
+#commentPop .conv button:hover:not(:disabled) { border-color: var(--border); }
+#commentPop .conv button[data-conv=text]:not(:disabled):hover { background: var(--accent-soft); }
+#commentPop .conv button[data-conv=ins] { color: #2563eb; }
+#commentPop .conv button[data-conv=note] { color: #9333ea; }
+#commentPop .conv button.on { background: var(--bg); color: var(--muted); opacity: .7; }

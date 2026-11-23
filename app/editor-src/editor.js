@@ -1509,6 +1509,24 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       view.dom.dataset.editMode = mode;
     },
     getMarks: () => findMarks(view.state.doc.toString()),
+    // Suggestions / instructions touched by a range (or containing the cursor when the range is empty).
+    marksAt(from, to) {
+      return findMarks(view.state.doc.toString()).filter((m) => (from < to ? m.from < to && m.to > from : from >= m.cFrom && from <= m.cTo));
+    },
+    // Turn the range into plain text ('text'), a suggested addition ('ins'), a suggested removal ('del') or an
+    // instruction ('note'). Marks the range touches are converted as a whole.
+    convertRange(from, to, target) {
+      const text = view.state.doc.toString();
+      let F = from, T = to;
+      for (const m of this.marksAt(from, to)) { F = Math.min(F, m.from); T = Math.max(T, m.to); }
+      if (F >= T) return false;
+      const plain = text.slice(F, T).replace(new RegExp(MARK_RE.source, 'g'), (_, a, b, c) => a ?? b ?? (c.startsWith(SENT) ? c.slice(SENT.length) : c));
+      if (!plain) return false;
+      const out = target === 'ins' ? `{++${plain}++}` : target === 'del' ? `{--${plain}--}` : target === 'note' ? `{>>${plain}<<}` : plain;
+      if (out === text.slice(F, T)) return false;
+      view.dispatch({ changes: { from: F, to: T, insert: out }, selection: { anchor: F + out.length }, annotations: direct.of(true), scrollIntoView: true });
+      return true;
+    },
     // Prefix every unsent instruction with "(sent) " (stored in the file, hidden in the editor).
     markNotesSent() {
       const marks = findMarks(view.state.doc.toString()).filter((m) => m.type === 'note' && !m.sent && m.content.trim());

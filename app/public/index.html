@@ -78,7 +78,15 @@
   </aside>
 </div>
 
-<div id="commentPop" hidden><button id="commentBtn">💬 Comment</button></div>
+<div id="commentPop" hidden>
+  <div class="conv" title="Change what this text is">
+    <span>Make</span>
+    <button data-conv="text" title="Plain text in the document">Text</button>
+    <button data-conv="ins" title="Your suggested addition (blue)">Suggestion</button>
+    <button data-conv="note" title="An instruction for Claude (purple)">Instruction</button>
+  </div>
+  <button id="commentBtn">💬 Comment</button>
+</div>
 <div id="commentForm" hidden>
   <div class="cf-quote"></div>
   <textarea rows="3" placeholder="What should Claude do here? (⌘↵ to send)"></textarea>
