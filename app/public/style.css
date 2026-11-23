@@ -396,3 +396,19 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 #commentPop .conv button.on { background: var(--bg); color: var(--muted); opacity: .7; }
 
 .cm-comment.draft { background: rgba(250, 204, 21, .3); outline: 1px dashed rgba(202, 138, 4, .8); }
+
+/* search bar (⌘F) */
+#editorHost .cm-panels { background: var(--panel); color: var(--text); border-color: var(--border); z-index: 5; }
+#editorHost .cm-panels-top { border-bottom: 1px solid var(--border); }
+#editorHost .cm-search { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px 12px; font-family: var(--sans); font-size: 12.5px; }
+#editorHost .cm-search br { display: none; }
+#editorHost .cm-search .cm-textfield { font: inherit; font-size: 13px; color: var(--text); background: var(--panel); border: 1px solid var(--border); border-radius: 6px; padding: 4px 8px; min-width: 180px; outline: none; }
+#editorHost .cm-search .cm-textfield:focus { border-color: var(--accent); }
+#editorHost .cm-search .cm-button { font: inherit; font-size: 12px; color: var(--text); background: var(--panel); background-image: none; border: 1px solid var(--border); border-radius: 6px; padding: 3px 9px; }
+#editorHost .cm-search .cm-button:hover { border-color: var(--accent); }
+#editorHost .cm-search label { display: inline-flex; align-items: center; gap: 3px; color: var(--muted); font-size: 12px; }
+#editorHost .cm-search button[name=close] { margin-left: auto; font-size: 16px; color: var(--muted); background: none; border: 0; padding: 0 6px; position: static; }
+#editorHost .cm-searchMatch { background: rgba(250, 204, 21, .35); border-radius: 2px; outline: 1px solid rgba(202, 138, 4, .5); }
+#editorHost .cm-searchMatch-selected { background: rgba(249, 115, 22, .45); outline: 2px solid #f97316; }
+#editorHost .cm-selectionMatch { background: rgba(99, 102, 241, .14); }
+#editorHost .cm-tex-mode .cm-panels { color-scheme: light; }

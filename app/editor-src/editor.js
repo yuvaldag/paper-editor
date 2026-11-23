@@ -3,6 +3,7 @@
 import { EditorState, StateField, StateEffect, Compartment, Prec, Annotation } from '@codemirror/state';
 import { EditorView, Decoration, WidgetType, keymap, drawSelection } from '@codemirror/view';
 import { defaultKeymap, history, historyKeymap, indentWithTab } from '@codemirror/commands';
+import { search, searchKeymap, openSearchPanel, closeSearchPanel, searchPanelOpen, highlightSelectionMatches } from '@codemirror/search';
 import { markdown, markdownLanguage } from '@codemirror/lang-markdown';
 import { syntaxTree, ensureSyntaxTree, syntaxHighlighting, HighlightStyle } from '@codemirror/language';
 import { tags as t } from '@lezer/highlight';
@@ -1461,7 +1462,9 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
         annotationsField,
         previewConf.of(livePreview),
         roConf.of([]),
-        keymap.of([...defaultKeymap, ...historyKeymap, indentWithTab]),
+        search({ top: true }),
+        highlightSelectionMatches({ minSelectionLength: 3 }),
+        keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.updateListener.of((u) => {
           if (u.docChanged && !u.transactions.some((tr) => tr.annotation(remote)) && onChange) onChange(u.changes);
           if (u.selectionSet && onSelection) onSelection();
@@ -1509,6 +1512,12 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       view.dom.dataset.editMode = mode;
     },
     getMarks: () => findMarks(view.state.doc.toString()),
+    // Search bar (⌘F): opens with the selected text, or closes it.
+    toggleSearch() {
+      if (searchPanelOpen(view.state)) closeSearchPanel(view);
+      else openSearchPanel(view);
+    },
+    openSearch() { openSearchPanel(view); },
     // Suggestions / instructions touched by a range (or containing the cursor when the range is empty).
     marksAt(from, to) {
       return findMarks(view.state.doc.toString()).filter((m) => (from < to ? m.from < to && m.to > from : from >= m.cFrom && from <= m.cTo));

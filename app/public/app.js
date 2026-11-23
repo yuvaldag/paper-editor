@@ -300,6 +300,15 @@ function setRaw(raw) {
   $('#rawToggle').textContent = raw ? 'Hide source' : 'Show source';
 }
 $('#rawToggle').onclick = () => setRaw(!S.raw);
+$('#searchBtn').onclick = () => ed.toggleSearch();
+// ⌘F / Ctrl+F anywhere in the app searches the document (the browser's own find can't see off-screen text).
+document.addEventListener('keydown', (e) => {
+  if (!(e.metaKey || e.ctrlKey) || e.altKey || e.key.toLowerCase() !== 'f' || !S.doc) return;
+  if (e.target.closest && e.target.closest('.cm-editor')) return; // the editor handles it itself
+  if (e.target.matches && e.target.matches('textarea, input') && !e.target.closest('.cm-search')) return;
+  e.preventDefault();
+  ed.openSearch();
+});
 
 // --- comment / message highlights inside the editor ---
 function anchor(r, text) {
