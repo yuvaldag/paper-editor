@@ -122,5 +122,55 @@
     return out;
   }
 
-  global.MDDiff = { buildSegments, resolve, myers };
+  // Three-way merge: apply the changes ancestor→mine onto theirs.
+  // Insertions are never lost; a replacement that overlaps a change on their side counts as a conflict and
+  // keeps their version.
+  function merge3(ancestor, mine, theirs) {
+    if (mine === ancestor || mine === theirs) return { text: theirs, conflicts: 0 };
+    if (theirs === ancestor) return { text: mine, conflicts: 0 };
+    const hunks = (a, b) => {
+      const out = [];
+      let x = 0, y = 0;
+      for (const s of buildSegments(a, b)) {
+        if (s.eq != null) { x += s.eq.length; y += s.eq.length; continue; }
+        out.push({ aFrom: x, aTo: x + s.del.length, bFrom: y, bTo: y + s.ins.length, ins: s.ins });
+        x += s.del.length;
+        y += s.ins.length;
+      }
+      return out;
+    };
+    const their = hunks(ancestor, theirs);
+    // Position in the ancestor -> position in theirs (null when inside text they deleted / replaced).
+    const map = (p, after) => {
+      let shift = 0;
+      for (const h of their) {
+        if (h.aTo < p || (h.aTo === p && h.aFrom < p)) { shift += (h.bTo - h.bFrom) - (h.aTo - h.aFrom); continue; }
+        if (h.aFrom === p && h.aTo === p) return after ? h.bTo : h.bFrom;
+        if (h.aFrom < p && p < h.aTo) return null;
+        break;
+      }
+      return p + shift;
+    };
+    const edits = [];
+    let conflicts = 0;
+    for (const m of hunks(ancestor, mine)) {
+      if (m.aFrom === m.aTo) {
+        // pure insertion (e.g. a note being typed): always kept
+        let at = map(m.aFrom, false);
+        if (at == null) { const h = their.find((x) => x.aFrom < m.aFrom && m.aFrom < x.aTo); at = h.bTo; }
+        edits.push({ from: at, to: at, text: m.ins });
+        continue;
+      }
+      const clash = their.some((h) => (h.aFrom < m.aTo && h.aTo > m.aFrom) || (h.aFrom === h.aTo && m.aFrom < h.aFrom && h.aFrom < m.aTo));
+      // keep their insertions that touch the edges of my replacement: map my start after them, my end before them
+      const from = map(m.aFrom, true), to = map(m.aTo, false);
+      if (clash || from == null || to == null) { conflicts++; continue; }
+      edits.push({ from, to, text: m.ins });
+    }
+    let text = theirs;
+    for (const e of edits.sort((x, y) => y.from - x.from)) text = text.slice(0, e.from) + e.text + text.slice(e.to);
+    return { text, conflicts };
+  }
+
+  global.MDDiff = { buildSegments, resolve, myers, merge3 };
 })(typeof window !== 'undefined' ? window : globalThis);

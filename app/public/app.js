@@ -139,6 +139,7 @@ async function loadFile() {
   const d = await api('GET', F());
   const fresh = !S.doc;
   S.doc = d;
+  S.server = { base: d.base, current: d.current }; // last version known to be on disk (merge ancestor)
   const pending = d.current !== d.base;
   S.reviewing = pending;
   ed.setReview(null);
@@ -454,13 +455,13 @@ async function save() {
       const r = await api('POST', `${F()}/resolve`, { base, current: content, expectBase: S.savedBaseHash || S.doc.baseHash, expectCurrent: S.savedHash || S.doc.hash });
       S.savedHash = r.hash; S.savedBaseHash = r.baseHash;
       S.doc.hash = r.hash; S.doc.baseHash = r.baseHash;
+      S.server = { base, current: content };
       if (ed.getDoc() === content && S.doc.base === base) { S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null; $('#saveState').textContent = 'Saved'; }
       else S.saveAgain = true;
       if (base === content) await loadFile();
     } catch (e) {
-      S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null;
-      toast(e.status === 409 ? 'Claude changed the file while you typed — reloaded it.' : e.message, 7000);
-      await loadFile();
+      if (e.status === 409) await mergeAfterConflict();
+      else { toast(e.message, 7000); S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null; await loadFile(); }
     } finally {
       S.saving = false;
       if (S.saveAgain) { S.saveAgain = false; if (S.dirty) save(); }
@@ -470,15 +471,13 @@ async function save() {
   try {
     const r = await api('POST', `${F()}/save`, { content, expect: S.doc.hash });
     Object.assign(S.doc, { current: content, base: content, hash: r.hash, baseHash: r.hash });
+    S.server = { base: content, current: content };
     if (ed.getDoc() === content) { S.dirty = false; $('#saveState').textContent = 'Saved'; }
     else S.saveAgain = true;
     scheduleCompile();
   } catch (e) {
     if (e.status === 409) {
-      S.dirty = false;
-      toast(`The file was changed by Claude while you typed. Your version was kept in ${e.data.conflictFile}`, 9000);
-      $('#saveState').textContent = '';
-      await loadFile();
+      await mergeAfterConflict(e.data && e.data.conflictFile);
     } else {
       $('#saveState').textContent = 'Save failed';
       toast(e.message);
@@ -486,6 +485,40 @@ async function save() {
   } finally {
     S.saving = false;
     if (S.saveAgain) { S.saveAgain = false; if (S.dirty) save(); }
+  }
+}
+// Claude (or git) changed the file while the user had unsaved typing: merge instead of throwing the typing away.
+// Ancestor = last version known on disk; mine = the editor; theirs = the file now.
+async function mergeAfterConflict(backupFile) {
+  ed.setReadOnly(true); // a few ms: keep keystrokes from landing between the read and the write
+  try {
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const fresh = await api('GET', F());
+      const anc = S.server || { base: fresh.base, current: fresh.current };
+      const mineC = ed.getDoc();
+      const mineB = S.reviewing ? S.doc.base : mineC;
+      const c = MDDiff.merge3(anc.current, mineC, fresh.current);
+      const b = MDDiff.merge3(anc.base, mineB, fresh.base);
+      try {
+        await api('POST', `${F()}/resolve`, { base: b.text, current: c.text, expectBase: fresh.baseHash, expectCurrent: fresh.hash });
+      } catch (x) {
+        if (x.status === 409) continue; // changed again meanwhile: retry
+        throw x;
+      }
+      S.dirty = false; S.reviewDirty = false; S.savedHash = S.savedBaseHash = null;
+      const lost = c.conflicts + b.conflicts;
+      toast(lost
+        ? `Claude edited the same words you were changing; ${lost} of your edits kept Claude's version.${backupFile ? ` Your full version is saved in ${backupFile}.` : ''}`
+        : 'Claude changed this file while you were typing — your text was kept and merged.', 7000);
+      $('#saveState').textContent = 'Saved';
+      await loadFile();
+      return;
+    }
+    throw new Error('The file keeps changing; please try again.');
+  } catch (x) {
+    toast(x.message, 7000);
+  } finally {
+    ed.setReadOnly(false);
   }
 }
 async function flushSave() {
