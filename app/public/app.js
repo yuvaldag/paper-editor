@@ -600,9 +600,8 @@ function moveFocus(dir) {
   S.focusHunk = S.hunks[pos].idx;
   ed.scrollTo(S.hunks[pos].pos);
   setTimeout(() => {
-    document.querySelectorAll('.cm-hunkctl.focus').forEach((x) => x.classList.remove('focus'));
-    const el = document.querySelector(`.cm-hunkctl[data-h="${S.focusHunk}"]`);
-    if (el) el.classList.add('focus');
+    document.querySelectorAll('#editorHost .cm-focus-hunk').forEach((x) => x.classList.remove('cm-focus-hunk'));
+    document.querySelectorAll(`#editorHost [data-h="${S.focusHunk}"]`).forEach((x) => x.classList.add('cm-focus-hunk'));
   }, 60);
 }
 $('#nextChange').onclick = () => moveFocus(1);

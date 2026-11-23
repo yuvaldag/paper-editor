@@ -471,3 +471,16 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 #boxPalette .sw { width: 14px; height: 14px; border-radius: 4px; flex: none; }
 .sw-blue { background: var(--box-blue); } .sw-green { background: var(--box-green); } .sw-yellow { background: var(--box-yellow); }
 .sw-orange { background: var(--box-orange); } .sw-red { background: var(--box-red); } .sw-purple { background: var(--box-purple); } .sw-gray { background: var(--box-gray); }
+
+/* hover bar for accepting / rejecting a change (replaces inline ✓ ✕ buttons) */
+.cm-hovertip { position: fixed; z-index: 60; border: 1px solid rgba(255,255,255,.18); display: flex; align-items: center; gap: 4px; padding: 4px 5px 4px 10px; background: #111827; color: #fff; border-radius: 9px; box-shadow: 0 8px 24px rgba(0,0,0,.3); font-family: var(--sans); font-size: 12px; white-space: nowrap; }
+.cm-hovertip .lbl { opacity: .65; margin-right: 4px; font-size: 11px; }
+.cm-hovertip button { font: inherit; font-size: 12px; border: 0; border-radius: 6px; padding: 3px 9px; cursor: pointer; color: #fff; }
+.cm-hovertip button.ok { background: #16a34a; }
+.cm-hovertip button.no { background: #dc2626; }
+.cm-hovertip button.ok.sug { background: #2563eb; }
+.cm-hovertip button.no.sug { background: #ea580c; }
+.cm-hovertip button:hover { filter: brightness(1.15); }
+.cm-hovered, .cm-focus-hunk { outline: 2px solid var(--accent); outline-offset: 1px; border-radius: 2px; }
+.cm-ins, .cm-del, .cm-sug-ins, .cm-sug-del, .cm-note { cursor: pointer; }
+.cm-ins-ws { opacity: .7; padding: 0 2px; }

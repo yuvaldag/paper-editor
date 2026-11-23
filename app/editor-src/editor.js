@@ -355,11 +355,12 @@ class TextWidget extends WidgetType {
 // ---------- tracked changes (review) ----------
 const setReviewEffect = StateEffect.define();
 class DelWidget extends WidgetType {
-  constructor(text) { super(); this.text = text; }
-  eq(o) { return o.text === this.text; }
+  constructor(text, idx, cls = 'cm-del') { super(); this.text = text; this.idx = idx; this.cls = cls; }
+  eq(o) { return o.text === this.text && o.idx === this.idx && o.cls === this.cls; }
   toDOM() {
     const s = document.createElement('span');
-    s.className = 'cm-del';
+    s.className = this.cls;
+    s.dataset.h = this.idx;
     s.textContent = /^\s+$/.test(this.text) ? this.text.replace(/\n/g, '↵\n').replace(/ /g, '·') : this.text;
     return s;
   }
@@ -1450,7 +1451,6 @@ function markupDecos(state, ctx, decos, math, replace) {
     replace(m.cTo, m.to, {});
     if (m.cTo > m.cFrom)
       decos.push(Decoration.mark({ class: m.type === 'ins' ? 'cm-sug-ins' : m.type === 'del' ? 'cm-sug-del' : isSent ? 'cm-note cm-note-sent' : 'cm-note' }).range(m.cFrom, m.cTo));
-    decos.push(Decoration.widget({ widget: new SugCtl(m.type), side: 1 }).range(m.to));
   }
 }
 
@@ -1569,11 +1569,78 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
         highlightSelectionMatches({ minSelectionLength: 3 }),
         keymap.of([...searchKeymap, ...defaultKeymap, ...historyKeymap, indentWithTab]),
         EditorView.updateListener.of((u) => {
+          if (u.docChanged) hideTip();
           if (u.docChanged && !u.transactions.some((tr) => tr.annotation(remote)) && onChange) onChange(u.changes);
           if (u.selectionSet && onSelection) onSelection();
         }),
       ],
     }),
+  });
+
+  // ---- hover a change -> a small floating bar to accept / reject it ----
+  const tip = document.createElement('div');
+  tip.className = 'cm-hovertip';
+  tip.hidden = true;
+  document.body.appendChild(tip);
+  let tipTarget = null, hideT = null, swapT = null;
+  const clearHover = () => view.dom.querySelectorAll('.cm-hovered').forEach((x) => x.classList.remove('cm-hovered'));
+  const hideTip = () => { clearTimeout(hideT); clearTimeout(swapT); tip.hidden = true; tipTarget = null; clearHover(); };
+  const scheduleHide = () => { clearTimeout(hideT); hideT = setTimeout(hideTip, 350); };
+  const BTN = {
+    hunk: '<span class="lbl">Claude</span><button data-act="accept" class="ok">✓ Accept</button><button data-act="reject" class="no">✕ Reject</button>',
+    ins: '<span class="lbl">Your suggestion</span><button data-act="accept" class="ok sug">✓ Accept</button><button data-act="reject" class="no sug">✕ Reject</button>',
+    del: '<span class="lbl">Your suggestion</span><button data-act="accept" class="ok sug">✓ Remove</button><button data-act="reject" class="no sug">✕ Keep</button>',
+    note: '<span class="lbl">Instruction</span><button data-act="reject" class="no">✕ Delete</button>',
+  };
+  view.dom.addEventListener('mouseover', (e) => {
+    const el = e.target.closest && e.target.closest('[data-h], .cm-sug-ins, .cm-sug-del, .cm-note, .cm-note-tag');
+    if (!el || !view.dom.contains(el)) return scheduleHide();
+    clearTimeout(hideT);
+    let target;
+    if (el.dataset.h != null) target = { kind: 'hunk', idx: +el.dataset.h };
+    else {
+      let pos;
+      try { pos = view.posAtDOM(el); } catch { return; }
+      const m = findMarks(view.state.doc.toString()).find((x) => pos >= x.from && pos <= x.to);
+      if (!m) return;
+      target = { kind: m.type, from: m.from };
+    }
+    clearTimeout(swapT);
+    if (tipTarget && tipTarget.kind === target.kind && tipTarget.idx === target.idx && tipTarget.from === target.from) return;
+    // A bar is already showing: only move it after the mouse rests on the other change, so the user can
+    // travel to the bar across other changes without it jumping away.
+    const x = e.clientX;
+    if (tipTarget) swapT = setTimeout(() => showTip(el, target, x), 320);
+    else showTip(el, target, x);
+  });
+  function showTip(el, target, x) {
+    if (!el.isConnected) return;
+    clearHover();
+    tipTarget = target;
+    if (target.kind === 'hunk') view.dom.querySelectorAll(`[data-h="${target.idx}"]`).forEach((x) => x.classList.add('cm-hovered'));
+    else el.classList.add('cm-hovered');
+    tip.innerHTML = BTN[target.kind];
+    tip.hidden = false;
+    const r = el.getClientRects()[0] || el.getBoundingClientRect();
+    const top = r.top - tip.offsetHeight - 6;
+    tip.style.top = `${top < 6 ? r.bottom + 6 : top}px`;
+    tip.style.left = `${Math.max(6, Math.min(x - tip.offsetWidth / 2, innerWidth - tip.offsetWidth - 6))}px`;
+  }
+  view.dom.addEventListener('mouseleave', scheduleHide);
+  view.scrollDOM.addEventListener('scroll', hideTip);
+  tip.addEventListener('mouseenter', () => { clearTimeout(hideT); clearTimeout(swapT); });
+  tip.addEventListener('mouseleave', scheduleHide);
+  tip.addEventListener('mousedown', (e) => e.preventDefault());
+  tip.addEventListener('click', (e) => {
+    const b = e.target.closest('button');
+    if (!b || !tipTarget) return;
+    const t = tipTarget, accept = b.dataset.act === 'accept';
+    hideTip();
+    if (t.kind === 'hunk') { if (onResolve) onResolve(t.idx, accept); return; }
+    const m = findMarks(view.state.doc.toString()).find((x) => x.from === t.from);
+    if (!m) return;
+    const keep = m.type !== 'note' && (m.type === 'ins') === accept ? m.content : '';
+    view.dispatch({ changes: { from: m.from, to: m.to, insert: keep }, annotations: direct.of(true) });
   });
 
   const api = {
@@ -1687,11 +1754,11 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       segments.forEach((s, i) => {
         if (s.eq != null) { pos += s.eq.length; return; }
         positions.push({ idx: i, pos });
-        if (s.del) d.push(Decoration.widget({ widget: new DelWidget(s.del), side: -1 }).range(pos));
-        if (s.ins) d.push(Decoration.mark({ class: 'cm-ins' }).range(pos, pos + s.ins.length));
+        if (s.del) d.push(Decoration.widget({ widget: new DelWidget(s.del, i), side: -1 }).range(pos));
+        if (s.ins && /^\s+$/.test(s.ins)) d.push(Decoration.widget({ widget: new DelWidget(s.ins, i, 'cm-ins cm-ins-ws'), side: -1 }).range(pos));
+        if (s.ins) d.push(Decoration.mark({ class: 'cm-ins', attributes: { 'data-h': String(i) } }).range(pos, pos + s.ins.length));
         ranges.push([pos, pos + s.ins.length]);
         pos += s.ins.length;
-        d.push(Decoration.widget({ widget: new HunkCtl(i, (idx, acc) => onResolve && onResolve(idx, acc)), side: 1 }).range(pos));
       });
       view.dispatch({ effects: setReviewEffect.of({ deco: Decoration.set(d, true), ranges }) });
       return positions;
