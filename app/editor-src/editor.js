@@ -419,8 +419,21 @@ const annotationsField = StateField.define({
 // ---------- live preview ----------
 const hide = Decoration.replace({});
 
+// Markdown/LaTeX syntax around the cursor is revealed only while the user is working in the editor
+// (it has focus, or the search bar is open) — so a freshly opened file shows no stray # or ** at the cursor.
+const setFocusEffect = StateEffect.define();
+const focusField = StateField.define({
+  create: () => false,
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setFocusEffect)) return e.value;
+    return v;
+  },
+});
+const focusTracker = EditorView.focusChangeEffect.of((_state, focusing) => setFocusEffect.of(focusing));
+const editing = (state) => state.field(focusField, false) || searchPanelOpen(state);
+
 function previewContext(state) {
-  const sel = state.selection.ranges;
+  const sel = editing(state) ? state.selection.ranges : [];
   const review = state.field(reviewField, false);
   const changed = review ? review.ranges : [];
   const doc = state.doc;
@@ -1392,7 +1405,8 @@ const previewField = StateField.define({
     if (
       tr.docChanged || tr.selection || tr.reconfigured ||
       tr.effects.some((e) => e.is(setReviewEffect) || e.is(setModeEffect) || e.is(setSentNotesEffect)) ||
-      syntaxTree(tr.startState) !== syntaxTree(tr.state)
+      syntaxTree(tr.startState) !== syntaxTree(tr.state) ||
+      editing(tr.startState) !== editing(tr.state)
     )
       return buildPreview(tr.state);
     return v;
@@ -1480,6 +1494,8 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl, onBlocked 
       doc: '',
       extensions: [
         modeField,
+        focusField,
+        focusTracker,
         editModeField,
         sentNotesField,
         suggestFilter,
