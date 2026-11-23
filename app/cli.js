@@ -253,9 +253,10 @@ async function main() {
       if (!p || !f) die('Usage: compile <project> <file.tex>');
       L.requireProject(p);
       const r = await L.compileTex(p, f);
+      if (r.root && r.root !== f) console.log(`${f} is part of ${r.root} — compiling ${r.root}.`);
       if (r.ok) console.log(`Compiled OK with ${r.compiler} in ${(r.ms / 1000).toFixed(1)}s -> ${r.pdfPath}`);
       else console.log(`Compilation FAILED${r.compiler ? ` (${r.compiler})` : ''}.`);
-      for (const e of r.errors) console.log(`  ${e.kind}${e.line ? ` line ${e.line}` : ''}: ${e.message}`);
+      for (const e of r.errors) console.log(`  ${e.kind}${e.line ? ` ${e.file ? e.file + ' ' : ''}line ${e.line}` : ''}: ${e.message}`);
       if (!r.ok && r.output) console.log('--- compiler output (tail) ---\n' + r.output.slice(-2500));
       process.exitCode = r.ok ? 0 : 1;
       break;

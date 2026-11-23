@@ -205,7 +205,8 @@ function parseTexOutput(text) {
   const out = [], seen = new Set();
   for (const raw of text.split('\n')) {
     const line = raw.trim();
-    let m = /^(error|warning): (?:(.+?\.tex):(\d+): )?(.*)$/.exec(line), kind, file, ln, msg;
+    // tectonic: "error: paper.tex:12: msg" or, for \input files, "error: intro:2: msg"
+    let m = /^(error|warning): (?:([^\s:]+):(\d+): )?(.*)$/.exec(line), kind, file, ln, msg;
     if (m) [, kind, file, ln, msg] = m;
     else if ((m = /^(?:\.\/)?([^\s:]+\.tex):(\d+): (.*)$/.exec(line))) [, file, ln, msg] = ['', m[1], m[2], m[3]], (kind = 'error');
     else continue;
@@ -213,6 +214,7 @@ function parseTexOutput(text) {
     const key = `${kind}|${ln}|${msg}`;
     if (seen.has(key)) continue;
     seen.add(key);
+    if (file) file = file.replace(/^\.\//, '').replace(/^([^.]+)$/, '$1.tex');
     out.push({ kind, file: file || null, line: ln ? +ln : null, message: msg });
   }
   const generic = /something bad happened inside|unrecoverable error|halted on potentially-recoverable|its output follows/i;
@@ -223,9 +225,52 @@ function parseTexOutput(text) {
     .slice(0, 60);
 }
 const compiling = new Map();
+// Which file to actually compile when `f` is opened. A file with its own \documentclass compiles itself;
+// otherwise: a "% !TEX root = x.tex" comment, then the file that \input / \include s it, then main.tex.
+const texCode = (s) => (s || '').replace(/(^|[^\\])%.*$/gm, '$1');
+const texBase = (name) => name.trim().replace(/^\.\//, '').replace(/\.tex$/, '');
+function resolveTexRoot(p, f) {
+  const read = (name) => readText(filePath(p, name)) || '';
+  const isRoot = (name) => /\\documentclass\b/.test(texCode(read(name)));
+  if (isRoot(f)) return { root: f, reason: 'self' };
+  const magic = /^\s*%\s*!\s*TEX\s+root\s*=\s*(.+?)\s*$/im.exec(read(f).split('\n').slice(0, 5).join('\n'));
+  if (magic) {
+    const name = texBase(magic[1]).replace(/^.*\//, '') + '.tex';
+    if (listFiles(p).includes(name)) return { root: name, reason: 'magic' };
+  }
+  const texFiles = listFiles(p).filter((x) => x.endsWith('.tex'));
+  const includers = (name) => {
+    const want = texBase(name);
+    return texFiles.filter((x) => x !== name && [...texCode(read(x)).matchAll(/\\(?:input|include|subfile)\s*\{([^}]*)\}/g)].some((m) => texBase(m[1]) === want));
+  };
+  // Walk up the chain of includes (intro.tex <- chapter1.tex <- main.tex) collecting every document
+  // (a file with \documentclass) that pulls this file in. main.tex wins if it is one of them, else the nearest.
+  const seen = new Set([f]);
+  const roots = [];
+  let level = [f];
+  for (let depth = 0; depth < 6 && level.length; depth++) {
+    const next = [];
+    for (const name of level)
+      for (const inc of includers(name)) {
+        if (seen.has(inc)) continue;
+        seen.add(inc);
+        if (isRoot(inc)) roots.push(inc);
+        else next.push(inc);
+      }
+    level = next;
+  }
+  if (roots.includes('main.tex')) return { root: 'main.tex', reason: 'included' };
+  if (roots.length) return { root: roots[0], reason: 'included' };
+  if (f !== 'main.tex' && texFiles.includes('main.tex')) return { root: 'main.tex', reason: 'main' };
+  return { root: f, reason: 'self' };
+}
+
 function compileTex(p, f) {
   checkFile(f);
   if (!f.endsWith('.tex')) return Promise.resolve({ ok: false, errors: [{ kind: 'error', message: 'Only .tex files can be compiled' }] });
+  const requested = f;
+  const { root, reason } = resolveTexRoot(p, f);
+  f = root;
   const key = p + '/' + f;
   if (compiling.has(key)) return compiling.get(key);
   const job = new Promise((resolve) => {
@@ -253,6 +298,7 @@ function compileTex(p, f) {
         errors.unshift({ kind: 'error', line: null, message: err && err.killed ? 'Compilation timed out' : 'Compilation failed (see output)' });
       resolve({
         ok, compiler: c.name, ms: Date.now() - started, pdf: exists ? pdfName : null, stale: exists && !fresh,
+        root: f, requested, rootReason: reason,
         pdfPath: exists ? path.join('projects', p, 'build', pdfName) : null, errors, output: output.slice(-8000),
       });
     });
@@ -262,7 +308,7 @@ function compileTex(p, f) {
 }
 
 module.exports = {
-  findCompiler, compileTex,
+  findCompiler, compileTex, resolveTexRoot,
   ROOT, PROJECTS, PORT, HEARTBEAT_MS, STALE_MS,
   httpErr, checkName, checkFile, projDir, collabDir, watcherFile, exists, requireProject,
   atomicWrite, readText, readJSON, hash, newId,

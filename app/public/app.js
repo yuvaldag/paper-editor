@@ -451,8 +451,9 @@ async function compile() {
     const nWarn = r.errors.length - nErr;
     $('#compileState').className = r.ok ? 'ok' : 'bad';
     $('#compileState').textContent = r.ok
-      ? `PDF ready · ${(r.ms / 1000).toFixed(1)}s${nWarn ? ` · ${nWarn} warning${nWarn > 1 ? 's' : ''}` : ''}${S.reviewing ? ' · includes unreviewed changes' : ''}`
-      : `${nErr || 1} error${nErr > 1 ? 's' : ''}${r.stale ? ' · showing last good PDF' : ''}`;
+      ? `${r.root && r.root !== file ? `${esc(r.root)} · ` : ''}PDF ready · ${(r.ms / 1000).toFixed(1)}s${nWarn ? ` · ${nWarn} warning${nWarn > 1 ? 's' : ''}` : ''}${S.reviewing ? ' · includes unreviewed changes' : ''}`
+      : `${r.root && r.root !== file ? `${esc(r.root)} · ` : ''}${nErr || 1} error${nErr > 1 ? 's' : ''}${r.stale ? ' · showing last good PDF' : ''}`;
+    $('#compileState').title = r.root && r.root !== file ? `${file} is part of ${r.root}, so ${r.root} was compiled` : '';
     renderTexErrors(r);
     if (r.pdf) {
       const url = `${P()}/pdf/${enc(r.pdf)}?t=${Date.now()}`;
@@ -476,8 +477,13 @@ function renderTexErrors(r) {
   box.hidden = false;
   box.innerHTML = `<div class="te-head"><b>${r.ok ? 'Warnings' : 'LaTeX errors'}</b>
       <button class="ghost" data-act="output">Show output</button><button class="ghost" data-act="close">✕</button></div>` +
-    r.errors.map((e) => `<div class="te-row ${e.kind}" ${e.line ? `data-line="${e.line}"` : ''}>
-      <span class="te-kind">${e.kind}</span>${e.line ? `<span class="te-line">line ${e.line}</span>` : ''}<span>${esc(e.message)}</span></div>`).join('') +
+    r.errors.map((e) => {
+      const ef = e.file ? e.file.replace(/^\.\//, '') : r.root || S.file;
+      const here = ef === S.file;
+      const target = e.line ? (here ? `data-line="${e.line}"` : S.files.some((x) => x.name === ef) ? `data-file="${esc(ef)}" data-line="${e.line}"` : '') : '';
+      const where = e.line ? `<span class="te-line">${here ? '' : esc(ef) + ' '}line ${e.line}</span>` : '';
+      return `<div class="te-row ${e.kind}" ${target}><span class="te-kind">${e.kind}</span>${where}<span>${esc(e.message)}</span></div>`;
+    }).join('') +
     `<pre class="te-output" hidden>${esc(r.output || '')}</pre>`;
 }
 $('#texErrors').addEventListener('click', (e) => {
@@ -485,6 +491,16 @@ $('#texErrors').addEventListener('click', (e) => {
   if (act === 'close') return ($('#texErrors').hidden = true);
   if (act === 'output') { const o = $('#texErrors .te-output'); o.hidden = !o.hidden; return; }
   const row = e.target.closest('[data-line]');
+  if (row && row.dataset.file && row.dataset.file !== S.file) {
+    const line = +row.dataset.line;
+    openFile(row.dataset.file).then(() => {
+      const doc = ed.view.state.doc;
+      const n = Math.min(doc.lines, line);
+      ed.select(doc.line(n).from, doc.line(n).to);
+      ed.focus();
+    });
+    return;
+  }
   if (row) {
     const doc = ed.view.state.doc;
     const n = Math.min(doc.lines, +row.dataset.line);
