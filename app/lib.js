@@ -280,15 +280,28 @@ function compileTex(p, f) {
     const dir = projDir(p);
     const out = path.join(dir, 'build');
     fs.mkdirSync(out, { recursive: true });
+    // Suggestions {++ ++}/{-- --} and instructions {>> <<} are not LaTeX: compile a cleaned copy
+    // (suggestions applied, instructions removed) when any .tex file contains them.
+    let cwd = dir;
+    const texs = listFiles(p).filter((x) => x.endsWith('.tex'));
+    if (texs.some((x) => /\{\+\+|\{--|\{>>/.test(readText(filePath(p, x)) || ''))) {
+      cwd = path.join(out, '.src');
+      fs.rmSync(cwd, { recursive: true, force: true });
+      fs.mkdirSync(cwd, { recursive: true });
+      for (const x of texs)
+        fs.writeFileSync(path.join(cwd, x), (readText(filePath(p, x)) || '').replace(/\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g, (_, ins) => ins ?? ''));
+    }
     const args =
-      c.name === 'tectonic' ? ['-X', 'compile', '--outdir', out, '--keep-logs', f]
+      c.name === 'tectonic' ? ['-X', 'compile', '--outdir', out, '--keep-logs', ...(cwd !== dir ? ['-Z', `search-path=${dir}`] : []), f]
       : c.name === 'latexmk' ? ['-pdf', '-interaction=nonstopmode', '-halt-on-error', '-file-line-error', `-outdir=${out}`, f]
       : ['-interaction=nonstopmode', '-halt-on-error', '-file-line-error', `-output-directory=${out}`, f];
     const pdfName = f.replace(/\.tex$/, '.pdf');
     const pdfPath = path.join(out, pdfName);
     const before = fs.existsSync(pdfPath) ? fs.statSync(pdfPath).mtimeMs : 0;
     const started = Date.now();
-    execFile(c.bin, args, { cwd: dir, timeout: 180000, maxBuffer: 20e6, env: { ...process.env, PATH: [...EXTRA_PATH, process.env.PATH].join(':') } }, (err, stdout, stderr) => {
+    const env = { ...process.env, PATH: [...EXTRA_PATH, process.env.PATH].join(':') };
+    if (cwd !== dir) env.TEXINPUTS = `${dir}:${process.env.TEXINPUTS || ''}`;
+    execFile(c.bin, args, { cwd, timeout: 180000, maxBuffer: 20e6, env }, (err, stdout, stderr) => {
       const output = `${stdout || ''}\n${stderr || ''}`;
       const errors = parseTexOutput(output);
       const exists = fs.existsSync(pdfPath);

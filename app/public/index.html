@@ -25,6 +25,12 @@
       <div id="crumb"></div>
       <div id="watchBadge" class="badge off"></div>
       <div class="spacer"></div>
+      <div class="seg" id="editMode" title="How your typing is applied">
+        <button data-em="edit" title="Edit the text directly">Edit</button>
+        <button data-em="suggest" title="Your changes are shown as suggestions (blue = added, orange = removed) to accept or reject later">Suggest</button>
+        <button data-em="instruct" title="What you type becomes an instruction for Claude at that spot">Instruct</button>
+      </div>
+      <button id="sendNotes" class="note-btn" hidden></button>
       <span id="saveState"></span>
       <span id="texControls" hidden>
         <span id="compileState"></span>
@@ -35,6 +41,12 @@
     </header>
 
     <div id="mergeBar" hidden></div>
+    <div id="sugBar" hidden>
+      <span>✎ <b id="sugCount">0</b> suggestion(s) of yours in this file</span>
+      <div class="spacer"></div>
+      <button id="sugReject" class="ghost">Reject all</button>
+      <button id="sugAccept" class="sug-primary">Accept all</button>
+    </div>
     <div id="reviewBar" hidden>
       <span title="Accept or reject Claude's changes to continue editing">✎ <b id="changeCount">0</b> suggested change(s)</span>
       <div class="spacer"></div>

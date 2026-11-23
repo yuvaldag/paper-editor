@@ -206,7 +206,7 @@ async function handleApi(req, res, parts) {
         const b = await readBody(req);
         const r = {
           id: L.newId(),
-          type: b.type === 'comment' ? 'comment' : 'request',
+          type: ['comment', 'instructions'].includes(b.type) ? b.type : 'request',
           file: b.file ? L.checkFile(b.file) : null,
           text: str(b.text, 20000).trim(),
           status: 'pending',
@@ -222,6 +222,12 @@ async function handleApi(req, res, parts) {
             suffix: str(b.suffix, 400),
           });
           if (!r.quote) throw L.httpErr(400, 'A comment needs selected text');
+        }
+        if (r.type === 'instructions') {
+          r.items = (Array.isArray(b.items) ? b.items : []).slice(0, 50).map((x) => ({
+            text: str(x && x.text, 5000).trim(), line: num(x && x.line), before: str(x && x.before, 400), after: str(x && x.after, 400),
+          })).filter((x) => x.text);
+          if (!r.items.length) throw L.httpErr(400, 'No instructions');
         }
         if (!r.text) throw L.httpErr(400, 'Empty message');
         if (b.replyTo) {

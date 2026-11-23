@@ -63,6 +63,14 @@ function fmtRequest(r, i) {
     lines.push(`    Conflicted files: ${(r.files || []).join(', ')}`);
     return lines.join('\n');
   }
+  if (r.type === 'instructions') {
+    lines.push(`    Instructions written by the user into ${r.file} as {>>…<<} notes, each at the place it applies:`);
+    (r.items || []).forEach((x, k) => {
+      lines.push(`    (${k + 1})${x.line ? ` line ${x.line}` : ''}: ${q(x.text)}`);
+      if (x.before || x.after) lines.push(`        context: ${q(`…${x.before || ''}⟦HERE⟧${x.after || ''}…`)}`);
+    });
+    return lines.join('\n');
+  }
   if (r.type === 'comment') {
     lines.push(`    Selected text${r.line ? ` (line ${r.line})` : ''}: ${q(r.quote)}`);
     if (r.prefix || r.suffix) lines.push(`    In context: ${q(`…${r.prefix || ''}⟦${r.quote}⟧${r.suffix || ''}…`)}`);
@@ -76,7 +84,7 @@ function fmtRequest(r, i) {
 
 function printWork(p, reqs) {
   const dir = L.projDir(p);
-  console.log(`Project ${q(p)} has ${reqs.length} new request(s) from the Paper Editor editor.`);
+  console.log(`Project ${q(p)} has ${reqs.length} new request(s) from the Paper Editor app.`);
   console.log(`Project folder: ${dir}\n`);
   reqs.forEach((r, i) => console.log(fmtRequest(r, i) + '\n'));
   if (reqs.some((r) => r.type === 'merge'))
@@ -88,11 +96,18 @@ function printWork(p, reqs) {
 - Your edits appear to the user as tracked changes; the user approves the merge in the app, which commits and pushes.
 - If you cannot decide something, ask the user with the message command (below) instead of guessing.
 `);
+  if (reqs.some((r) => r.type === 'instructions'))
+    console.log(`INSTRUCTIONS — the user typed them into the file as {>>instruction<<} at the spot they refer to.
+Carry out each one, then delete that {>>…<<} note from the file (its removal is applied automatically).
+`);
   console.log(`How to handle them:
 1. Edit the .md / .tex file(s) in the project folder directly (read them first). Make focused edits; for a comment,
    change the selected text / its surroundings as the comment asks. Never edit anything inside .collab/.
    The user sees your edits as tracked changes (insertions/deletions) and accepts or rejects them in the app.
    If a comment is only a question, answer it in the done-note instead of editing.
+   Markup in the files: {++text++} / {--text--} are the USER's own suggested insertions / deletions and
+   {>>text<<} are the user's instructions. Keep {++ ++}/{-- --} marks intact (don't accept, reject or
+   rewrite them) unless asked to; edit around them.
    After editing a .tex file, check it still compiles:  ${CLI} compile ${q(p)} <file.tex>  (fix errors you caused).
 2. Mark each request handled with a short note that is shown to the user under the comment:
    ${CLI} done ${q(p)} <id> "what you changed"

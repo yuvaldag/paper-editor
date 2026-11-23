@@ -14,6 +14,8 @@ const MATH_ENVS = new Set([
   'alignat', 'alignat*', 'flalign', 'flalign*', 'eqnarray', 'eqnarray*', 'displaymath', 'math',
 ]);
 
+const remote = Annotation.define();
+
 // ---------- mode (md | tex) ----------
 const setModeEffect = StateEffect.define();
 const modeField = StateField.define({
@@ -257,7 +259,7 @@ function findMath(state) {
 }
 
 function renderTex(el, tex, display) {
-  const clean = tex.replace(/\\label\{[^}]*\}/g, '').replace(/\\(nonumber|notag)(?![a-zA-Z])/g, '');
+  const clean = stripMarkup(tex).replace(/\\label\{[^}]*\}/g, '').replace(/\\(nonumber|notag)(?![a-zA-Z])/g, '');
   try {
     katex.render(clean, el, { displayMode: display, throwOnError: false, strict: 'ignore', trust: false });
   } catch {
@@ -446,7 +448,9 @@ function buildMdPreview(state) {
   const decos = [];
   const ctx = previewContext(state);
   const { doc, touchesChange, selTouches, lineActive } = ctx;
-  mathDecos(findMathMd(state), ctx, decos);
+  const mdMath = findMathMd(state);
+  mathDecos(mdMath, ctx, decos);
+  markupDecos(state, ctx, decos, mdMath, (a, b, spec) => { if (b > a) decos.push(Decoration.replace(spec).range(a, b)); return true; });
   getTree(state).iterate({
     enter(n) {
       const name = n.name;
@@ -857,6 +861,7 @@ function buildTexPreview(state) {
   // 1. math (rendered / editable)
   mathDecos(M.math, ctx, decos);
   for (const m of M.math) claimed.push([m.bfrom, m.bto]);
+  markupDecos(state, ctx, decos, M.math, (a, b, spec) => (b > a ? replace(a, b, spec) : true));
 
   // 2. preamble and the end of the document
   let bodyFrom = 0, bodyTo = doc.length;
@@ -1117,6 +1122,153 @@ function buildTexPreview(state) {
   return Decoration.set(decos, true);
 }
 
+// ---------- user suggestions & instructions (CriticMarkup) ----------
+// {++added++}  {--removed--}  are the user's suggested edits; {>>text<<} is an instruction for Claude.
+const MARK_RE = /\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g;
+function findMarks(text) {
+  const out = [];
+  const re = new RegExp(MARK_RE.source, 'g');
+  let m;
+  while ((m = re.exec(text))) {
+    const type = m[1] != null ? 'ins' : m[2] != null ? 'del' : 'note';
+    out.push({ type, from: m.index, to: m.index + m[0].length, cFrom: m.index + 3, cTo: m.index + m[0].length - 3, content: m[1] ?? m[2] ?? m[3] });
+  }
+  return out;
+}
+// The text with every suggestion accepted and instructions removed.
+const stripMarkup = (s) => s.replace(new RegExp(MARK_RE.source, 'g'), (_, ins) => ins ?? '');
+
+const setEditModeEffect = StateEffect.define();
+const editModeField = StateField.define({
+  create: () => 'edit',
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setEditModeEffect)) return e.value;
+    return v;
+  },
+});
+const setSentNotesEffect = StateEffect.define();
+const sentNotesField = StateField.define({
+  create: () => new Set(),
+  update(v, tr) {
+    for (const e of tr.effects) if (e.is(setSentNotesEffect)) return e.value;
+    return v;
+  },
+});
+const direct = Annotation.define();
+
+// Turn typing into suggestions / instructions, depending on the edit mode.
+const suggestFilter = EditorState.transactionFilter.of((tr) => {
+  const mode = tr.startState.field(editModeField, false);
+  if (!mode || mode === 'edit' || !tr.docChanged || tr.annotation(direct) || tr.annotation(remote)) return tr;
+  if (!(tr.isUserEvent('input') || tr.isUserEvent('delete'))) return tr;
+  const changes = [];
+  tr.changes.iterChanges((fromA, toA, _fb, _tb, ins) => changes.push({ fromA, toA, ins: ins.toString() }));
+  if (changes.length !== 1) return [];
+  const { fromA, toA, ins } = changes[0];
+  const text = tr.startState.doc.toString();
+  const marks = findMarks(text);
+  const backward = tr.isUserEvent('delete.backward');
+  const out = (from, to, insert, cursor) => [
+    { changes: { from, to, insert }, selection: { anchor: cursor }, scrollIntoView: true, userEvent: backward ? 'delete.backward' : 'input' },
+  ];
+  const inContent = (m) => fromA >= m.cFrom && toA <= m.cTo;
+  const plainInside = (m) => {
+    // Editing the user's own pending suggestion / instruction text is a normal edit; drop the mark if it becomes empty.
+    if (!ins && toA - fromA === m.cTo - m.cFrom) return out(m.from, m.to, '', m.from);
+    return tr;
+  };
+
+  if (mode === 'instruct') {
+    const note = marks.find((m) => m.type === 'note' && fromA >= m.from && toA <= m.to);
+    if (note) {
+      if (inContent(note)) return plainInside(note);
+      if (fromA === toA) { const p = fromA <= note.cFrom ? note.cFrom : note.cTo; return out(p, p, ins, p + ins.length); }
+      return [];
+    }
+    if (!ins) return []; // instruction mode never deletes document text
+    const inside = marks.find((m) => fromA > m.from && fromA < m.to);
+    const at = inside ? inside.to : fromA;
+    return out(at, at, `{>>${ins}<<}`, at + 3 + ins.length);
+  }
+
+  // suggest mode
+  const own = marks.find((m) => m.type === 'ins' && fromA >= m.from && toA <= m.to);
+  if (own) {
+    if (inContent(own)) return plainInside(own);
+    if (fromA === toA) { const p = fromA <= own.cFrom ? own.cFrom : own.cTo; return out(p, p, ins, p + ins.length); }
+  }
+  if (fromA === toA) {
+    const inside = marks.find((m) => fromA > m.from && fromA < m.to);
+    const at = inside ? inside.to : fromA;
+    const prev = marks.find((m) => m.type === 'ins' && m.to === at);
+    if (prev) return out(prev.cTo, prev.cTo, ins, prev.cTo + ins.length);
+    return out(at, at, `{++${ins}++}`, at + 3 + ins.length);
+  }
+  // A deletion: never delete, mark the text as removed instead.
+  let F = fromA, T = toA;
+  // Backspace / Delete right next to an existing removal: skip over it and extend it.
+  if (toA - fromA === 1 && !ins) {
+    const hit = marks.find((m) => m.type === 'del' && fromA >= m.from && toA <= m.to);
+    if (hit) {
+      if (backward) { if (hit.from === 0) return []; F = hit.from - 1; T = hit.from; }
+      else { if (hit.to >= text.length) return []; F = hit.to; T = hit.to + 1; }
+    }
+  }
+  if (marks.some((m) => F < m.to && T > m.from)) return []; // would cut through existing marks
+  let content = text.slice(F, T);
+  const left = marks.find((m) => m.type === 'del' && m.to === F);
+  const right = marks.find((m) => m.type === 'del' && m.from === T);
+  if (left) { F = left.from; content = left.content + content; }
+  if (right) { T = right.to; content = content + right.content; }
+  const S = `{--${content}--}` + (ins ? `{++${ins}++}` : '');
+  const cursor = ins ? F + S.length - 3 : backward ? F : F + S.length;
+  return out(F, T, S, cursor);
+});
+
+class SugCtl extends WidgetType {
+  constructor(type) { super(); this.type = type; }
+  eq(o) { return o.type === this.type; }
+  toDOM(view) {
+    const s = document.createElement('span');
+    s.className = 'cm-sugctl';
+    for (const [act, label, title] of [['accept', '✓', 'Accept this suggestion'], ['reject', '✕', 'Reject this suggestion']]) {
+      const b = document.createElement('button');
+      b.textContent = label;
+      b.title = title;
+      b.dataset.act = act;
+      b.addEventListener('mousedown', (e) => { e.preventDefault(); e.stopPropagation(); });
+      b.addEventListener('click', () => {
+        let pos;
+        try { pos = view.posAtDOM(s); } catch { return; }
+        const m = findMarks(view.state.doc.toString()).find((x) => x.to === pos && x.type !== 'note');
+        if (!m) return;
+        const keep = (m.type === 'ins') === (act === 'accept') ? m.content : '';
+        view.dispatch({ changes: { from: m.from, to: m.to, insert: keep }, annotations: direct.of(true) });
+      });
+      s.appendChild(b);
+    }
+    return s;
+  }
+  ignoreEvent() { return true; }
+}
+
+// Decorations for suggestions and instructions. `replace(a, b, spec)` adds a replace decoration (may refuse).
+function markupDecos(state, ctx, decos, math, replace) {
+  const text = state.doc.toString();
+  const sent = state.field(sentNotesField, false) || new Set();
+  for (const m of findMarks(text)) {
+    if (math.some((x) => m.from < x.to && m.to > x.from)) continue;
+    if (ctx.touchesChange(m.from, m.to)) continue;
+    const isSent = m.type === 'note' && sent.has(m.content.trim());
+    const open = m.type === 'note' ? { widget: new HtmlWidget(isSent ? '➤ sent' : '➤', 'cm-note-tag') } : {};
+    if (!replace(m.from, m.cFrom, open)) continue;
+    replace(m.cTo, m.to, {});
+    if (m.cTo > m.cFrom)
+      decos.push(Decoration.mark({ class: m.type === 'ins' ? 'cm-sug-ins' : m.type === 'del' ? 'cm-sug-del' : isSent ? 'cm-note cm-note-sent' : 'cm-note' }).range(m.cFrom, m.cTo));
+    if (m.type !== 'note') decos.push(Decoration.widget({ widget: new SugCtl(m.type), side: 1 }).range(m.to));
+  }
+}
+
 function buildPreview(state) {
   return state.field(modeField) === 'tex' ? buildTexPreview(state) : buildMdPreview(state);
 }
@@ -1125,7 +1277,7 @@ const previewField = StateField.define({
   update(v, tr) {
     if (
       tr.docChanged || tr.selection || tr.reconfigured ||
-      tr.effects.some((e) => e.is(setReviewEffect) || e.is(setModeEffect)) ||
+      tr.effects.some((e) => e.is(setReviewEffect) || e.is(setModeEffect) || e.is(setSentNotesEffect)) ||
       syntaxTree(tr.startState) !== syntaxTree(tr.state)
     )
       return buildPreview(tr.state);
@@ -1200,7 +1352,6 @@ const highlight = HighlightStyle.define([
   { tag: t.contentSeparator, color: 'var(--muted)' },
 ]);
 
-const remote = Annotation.define();
 const mdLanguage = [markdown({ base: markdownLanguage, extensions: [MathExt] }), syntaxHighlighting(highlight)];
 
 function create(parent, { onChange, onSelection, onResolve, assetUrl } = {}) {
@@ -1215,6 +1366,9 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl } = {}) {
       doc: '',
       extensions: [
         modeField,
+        editModeField,
+        sentNotesField,
+        suggestFilter,
         history(),
         drawSelection(),
         EditorView.lineWrapping,
@@ -1264,6 +1418,21 @@ function create(parent, { onChange, onSelection, onResolve, assetUrl } = {}) {
     },
     setReadOnly(ro) {
       view.dispatch({ effects: roConf.reconfigure(ro ? [EditorState.readOnly.of(true), EditorView.editable.of(false)] : []) });
+    },
+    // 'edit' | 'suggest' | 'instruct'
+    setEditMode(mode) {
+      view.dispatch({ effects: setEditModeEffect.of(mode) });
+      view.dom.dataset.editMode = mode;
+    },
+    getMarks: () => findMarks(view.state.doc.toString()),
+    setSentNotes(texts) {
+      view.dispatch({ effects: setSentNotesEffect.of(new Set(texts.map((x) => x.trim()))) });
+    },
+    // Accept or reject all of the user's suggestions at once (instructions are left alone).
+    resolveSuggestions(accept) {
+      const cur = view.state.doc.toString();
+      const next = cur.replace(new RegExp(MARK_RE.source, 'g'), (m, ins, del, note) => (note != null ? m : accept ? ins ?? '' : del ?? ''));
+      if (next !== cur) view.dispatch({ changes: { from: 0, to: cur.length, insert: next }, annotations: direct.of(true) });
     },
     setRaw(raw) {
       view.dispatch({ effects: previewConf.reconfigure(raw ? [] : livePreview) });

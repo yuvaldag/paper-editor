@@ -313,3 +313,45 @@ dialog hr { border: 0; border-top: 1px solid var(--border); margin: 14px 0; }
 
 #fileList input.rename { width: 100%; font: inherit; font-size: 13px; padding: 2px 6px; border: 1px solid var(--accent); border-radius: 4px; background: var(--panel); color: var(--text); outline: none; }
 #fileList li { user-select: none; }
+
+/* edit modes: Edit / Suggest / Instruct */
+.seg { display: flex; }
+.seg button { border-radius: 0; margin-left: -1px; font-size: 12.5px; padding: 3px 10px; }
+.seg button:first-child { border-radius: 6px 0 0 6px; margin-left: 0; }
+.seg button:last-child { border-radius: 0 6px 6px 0; }
+.seg button.on { position: relative; z-index: 1; }
+#editMode button.on[data-em=edit] { background: var(--accent-soft); color: var(--accent); border-color: var(--accent); }
+#editMode button.on[data-em=suggest] { background: #dbeafe; color: #1d4ed8; border-color: #3b82f6; }
+#editMode button.on[data-em=instruct] { background: #f3e8ff; color: #7e22ce; border-color: #a855f7; }
+#editMode.disabled { opacity: .45; pointer-events: none; }
+.note-btn { background: #9333ea; color: #fff; border-color: #9333ea; font-size: 12.5px; }
+#sugBar { display: flex; align-items: center; gap: 8px; padding: 6px 14px; background: #eff6ff; color: #1e3a8a; border-bottom: 1px solid #bfdbfe; font-size: 13px; }
+.sug-primary { background: #2563eb; color: #fff; border-color: #2563eb; }
+@media (prefers-color-scheme: dark) {
+  #editMode button.on[data-em=suggest] { background: #172554; color: #93c5fd; border-color: #3b82f6; }
+  #editMode button.on[data-em=instruct] { background: #3b0764; color: #d8b4fe; border-color: #a855f7; }
+  #sugBar { background: #0f1d3d; color: #bfdbfe; border-color: #1e3a8a; }
+}
+/* the user's suggestions: blue additions, orange removals (Claude's are green / red) */
+.cm-sug-ins { color: #1d4ed8; background: rgba(59, 130, 246, .13); text-decoration: underline; text-decoration-color: rgba(37, 99, 235, .55); text-underline-offset: 3px; }
+.cm-sug-del { color: #c2410c; background: rgba(249, 115, 22, .12); text-decoration: line-through; text-decoration-color: rgba(194, 65, 12, .8); }
+@media (prefers-color-scheme: dark) {
+  .cm-sug-ins { color: #93c5fd; background: rgba(59, 130, 246, .2); }
+  .cm-sug-del { color: #fdba74; background: rgba(249, 115, 22, .18); }
+}
+.cm-tex-mode .cm-sug-ins { color: #1d4ed8; background: rgba(59, 130, 246, .13); }
+.cm-tex-mode .cm-sug-del { color: #c2410c; background: rgba(249, 115, 22, .12); }
+.cm-sugctl { display: inline-flex; gap: 2px; margin: 0 3px; vertical-align: 2px; white-space: nowrap; font-style: normal; text-indent: 0; }
+.cm-sugctl button { font-family: var(--sans); font-size: 10.5px; line-height: 13px; padding: 0 4px; border-radius: 4px; border-color: #93c5fd; color: #1d4ed8; background: transparent; }
+.cm-sugctl button[data-act=reject] { color: #c2410c; border-color: #fdba74; }
+/* instructions for Claude: purple notes */
+.cm-note { font-family: var(--sans); font-size: .84em; font-style: normal; color: #7e22ce; background: rgba(168, 85, 247, .13); border-radius: 4px; padding: 1px 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+.cm-note-sent { opacity: .6; }
+.cm-note-tag { font-family: var(--sans); font-size: .7em; font-weight: 700; color: #9333ea; margin-right: 2px; font-style: normal; text-indent: 0; }
+@media (prefers-color-scheme: dark) { .cm-note { color: #d8b4fe; background: rgba(168, 85, 247, .2); } .cm-note-tag { color: #c084fc; } }
+.cm-tex-mode .cm-note { color: #7e22ce; background: rgba(168, 85, 247, .13); }
+.cm-tex-mode .cm-note-tag { color: #9333ea; }
+.cm-editor[data-edit-mode=suggest] .cm-cursor { border-left-color: #2563eb !important; }
+.cm-editor[data-edit-mode=instruct] .cm-cursor { border-left-color: #9333ea !important; }
+#topbar { flex-wrap: wrap; row-gap: 6px; min-width: 0; }
+#crumb { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

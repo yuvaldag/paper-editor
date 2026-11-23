@@ -11,6 +11,7 @@ const S = {
   dirty: false, saving: false, saveAgain: false, saveT: null,
   reviewing: false, segments: null, hunks: [], focusHunk: -1,
   sel: null, hotReq: null, lastReqJSON: '', replyTo: null,
+  editMode: localStorage.getItem('mds-editmode') || 'edit', sentKey: '',
   pdfOpen: localStorage.getItem('mds-pdf') === '1', compiling: false, compileAgain: false, compileT: null, lastCompile: null,
 };
 const isTex = () => !!S.file && S.file.endsWith('.tex');
@@ -113,7 +114,7 @@ async function refreshState() {
   renderFiles();
   renderWatch();
   renderRequests();
-  if (S.doc) renderHighlights();
+  if (S.doc) { renderHighlights(); renderMarks(); }
   notifyMessages();
   if (!S.file || !st.files.some((f) => f.name === S.file)) {
     if (st.files.length) return openFile(st.files[0].name);
@@ -148,7 +149,84 @@ async function loadFile() {
     S.hunks = [];
   }
   renderHighlights();
+  renderMarks();
+  if (pending && !S.autoNoteFix) autoAcceptNoteRemovals();
 }
+
+// When Claude carries out an instruction it deletes the {>>…<<} note; that deletion needs no review.
+// Drop every note that Claude removed from the accepted text, so only Claude's real edits remain to review.
+async function autoAcceptNoteRemovals() {
+  const cur = S.doc.current;
+  const base = S.doc.base.replace(/\{>>[\s\S]*?<<\}/g, (m) => (cur.includes(m) ? m : ''));
+  if (base === S.doc.base) return;
+  S.autoNoteFix = true;
+  try {
+    await api('POST', `${F()}/resolve`, { base, current: S.doc.current, expectBase: S.doc.baseHash, expectCurrent: S.doc.hash });
+    await loadFile();
+  } catch {} finally { S.autoNoteFix = false; }
+}
+
+// ---------------- suggestions / instructions (edit modes) ----------------
+function setEditMode(mode) {
+  S.editMode = mode;
+  localStorage.setItem('mds-editmode', mode);
+  ed.setEditMode(mode);
+  document.querySelectorAll('#editMode button').forEach((b) => b.classList.toggle('on', b.dataset.em === mode));
+  $('#editMode').dataset.mode = mode;
+}
+$('#editMode').addEventListener('click', (e) => {
+  const m = e.target.dataset.em;
+  if (!m) return;
+  setEditMode(m);
+  if (m === 'instruct') toast('Instruct: type where you want something done — your text becomes a note for Claude. Then click “Send to Claude”.', 6000);
+  if (m === 'suggest') toast('Suggest: your additions show in blue and removals in orange, to accept or reject later.', 5000);
+  ed.focus();
+});
+function sentInstructionTexts() {
+  return S.requests
+    .filter((r) => r.type === 'instructions' && r.file === S.file && r.status !== 'done')
+    .flatMap((r) => (r.items || []).map((x) => x.text.trim()));
+}
+function renderMarks() {
+  if (!S.doc) return;
+  const marks = ed.getMarks();
+  const sugs = marks.filter((m) => m.type !== 'note').length;
+  $('#sugBar').hidden = !sugs || S.reviewing;
+  $('#sugCount').textContent = sugs;
+  const sent = sentInstructionTexts();
+  const key = JSON.stringify(sent);
+  if (key !== S.sentKey) { S.sentKey = key; ed.setSentNotes(sent); }
+  const unsent = marks.filter((m) => m.type === 'note' && m.content.trim() && !sent.includes(m.content.trim()));
+  const btn = $('#sendNotes');
+  btn.hidden = !unsent.length;
+  btn.textContent = `➤ Send ${unsent.length} instruction${unsent.length > 1 ? 's' : ''} to Claude`;
+  $('#editMode').classList.toggle('disabled', S.reviewing);
+}
+$('#sugAccept').onclick = () => ed.resolveSuggestions(true);
+$('#sugReject').onclick = () => ed.resolveSuggestions(false);
+$('#sendNotes').onclick = async () => {
+  await flushSave();
+  const text = ed.getDoc();
+  const sent = sentInstructionTexts();
+  const notes = ed.getMarks().filter((m) => m.type === 'note' && m.content.trim() && !sent.includes(m.content.trim()));
+  if (!notes.length) return;
+  const clean = (s) => s.replace(/\{\+\+([\s\S]*?)\+\+\}|\{--([\s\S]*?)--\}|\{>>([\s\S]*?)<<\}/g, (_, a) => a ?? '');
+  const items = notes.map((m) => ({
+    text: m.content.trim(),
+    line: lineOf(text, m.from),
+    before: clean(text.slice(Math.max(0, m.from - 300), m.from)).slice(-160),
+    after: clean(text.slice(m.to, m.to + 300)).slice(0, 160),
+  }));
+  try {
+    await api('POST', `${P()}/requests`, {
+      type: 'instructions', file: S.file, items,
+      text: items.length === 1 ? items[0].text : `${items.length} instructions: ` + items.map((x) => `“${x.text}”`).join('; '),
+    });
+    toast(S.watch.state === 'off' ? 'Instructions saved. No chat is watching this project yet.' : 'Instructions sent to Claude.');
+    await refreshState();
+    renderMarks();
+  } catch (e) { toast(e.message); }
+};
 
 // ---------------- rendering ----------------
 function renderEmpty() {
@@ -299,6 +377,7 @@ function onUserEdit() {
   clearTimeout(S.saveT);
   S.saveT = setTimeout(save, 600);
   renderHighlights();
+  renderMarks();
 }
 async function save() {
   if (!S.doc || !S.dirty) return;
@@ -860,6 +939,7 @@ setInterval(() => { if (S.requests.length) { S.lastReqJSON = ''; renderRequests(
 // ---------------- boot ----------------
 (async function boot() {
   setRaw(S.raw);
+  setEditMode(S.editMode);
   renderTexControls();
   const { p, f } = readHash();
   try { S.projects = await api('GET', '/api/projects'); } catch {}
